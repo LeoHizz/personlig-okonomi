@@ -272,8 +272,18 @@ def get_settings():
         "label_rules": db.get_setting("label_rules", []),
         "labels": labels.all_labels(),
         "categories": categorize.CATEGORY_ORDER,
-        "accounts": [dict(r) for r in db.query("SELECT * FROM accounts ORDER BY sort_order, name")],
+        "accounts": _accounts_with_balance(),
     }
+
+
+def _accounts_with_balance() -> list[dict]:
+    out = []
+    for r in db.query("SELECT * FROM accounts ORDER BY sort_order, name"):
+        a = dict(r)
+        has = db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],))
+        a["balanceFmt"] = aggregate._fmt(aggregate.account_current_balance(a["id"])) if has else "—"
+        out.append(a)
+    return out
 
 
 @app.post("/api/settings")

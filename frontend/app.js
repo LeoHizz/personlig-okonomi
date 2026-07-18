@@ -1002,7 +1002,10 @@ function renderSettings(tab) {
             return `<div style="border:1px solid ${isDup ? "#e6c766" : "var(--line)"};border-radius:10px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
           <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
-          ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent navn/IBAN fra banken">↻ Hent fra bank</button>`}
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-weight:700;font-size:13px;white-space:nowrap">${esc(a.balanceFmt || "—")}${a.balanceFmt && a.balanceFmt !== "—" ? " kr" : ""}</span>
+            ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent navn/IBAN fra banken">↻ Hent fra bank</button>`}
+          </div>
         </div>
         <div class="grid3">
           <div class="field" style="margin:0"><label>Visningsnavn</label><input class="acc-in" data-id="${esc(a.id)}" data-f="name" value="${esc(a.name)}"></div>
