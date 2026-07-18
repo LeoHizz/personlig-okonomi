@@ -1,0 +1,13 @@
+.env
+data/
+*.pem
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+.venv/
+_design/
+*.zip
+.DS_Store
+.claude/
