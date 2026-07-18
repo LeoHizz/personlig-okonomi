@@ -162,6 +162,11 @@ def analysis(month: str | None = None, person: str | None = None, label: str | N
     return aggregate.build_analysis(month, person, label)
 
 
+@app.get("/api/merchant")
+def merchant(name: str, person: str | None = None, label: str | None = None):
+    return aggregate.build_merchant(name, person, label)
+
+
 @app.post("/api/import/csv")
 async def import_csv(request: Request):
     body = await request.json()

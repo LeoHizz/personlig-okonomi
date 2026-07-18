@@ -137,6 +137,7 @@ def build_dashboard(month: str | None = None, person: str | None = None) -> dict
         item_list = [
             {
                 "label": k + (f" ({v[1]} kjøp)" if v[1] > 1 else ""),
+                "name": k,
                 "amt": _fmt(v[0]),
                 "flag": "",
             }
@@ -692,6 +693,61 @@ def build_analysis(month: str | None = None, person: str | None = None,
             "savedNow": _fmt(saved_now), "savedPrev": _fmt(saved_prev),
         },
         "insights": insights,
+    }
+
+
+def build_merchant(name: str | None, person: str | None = None, label: str | None = None) -> dict:
+    """Historikk for én butikk/motpart over tid (kostnad per måned + siste kjøp)."""
+    name = (name or "").strip()
+    if not name:
+        return {"name": "", "count": 0, "series": [], "recent": []}
+    rows = db.query(
+        "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
+        "FROM transactions t JOIN accounts a ON a.id = t.account_id "
+        "WHERE a.hidden = 0 AND lower(t.counterparty) = lower(?) "
+        "ORDER BY t.booking_date DESC",
+        (name,),
+    )
+    txs = [dict(r) for r in rows]
+    if person and person != "Alle":
+        txs = [t for t in txs if (t["owner"] or "") == person]
+    if label and label != "Alle":
+        txs = [t for t in txs if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
+
+    expenses = [t for t in txs if t["amount"] < 0]
+    total = sum(-t["amount"] for t in expenses)
+    count = len(expenses)
+    cat_count: dict[str, int] = defaultdict(int)
+    for t in expenses:
+        cat_count[t["category"]] += 1
+    category = max(cat_count, key=cat_count.get) if cat_count else (txs[0]["category"] if txs else "")
+
+    months = _prev_months(current_month(), 12)
+    by_month: dict[str, float] = defaultdict(float)
+    for t in expenses:
+        by_month[(t["booking_date"] or "")[:7]] += -t["amount"]
+    series = [
+        {"month": m, "label": _month_label(m).split()[0][:3], "amount": round(by_month.get(m, 0.0))}
+        for m in months
+    ]
+    active = [m for m in by_month if by_month[m] > 0]
+
+    recent = [
+        {"date": _short_date(t["booking_date"]),
+         "amtFmt": ("+" if t["amount"] > 0 else "−") + _fmt(abs(t["amount"])),
+         "positive": t["amount"] > 0,
+         "acct": t["bank_code"] or t["acct_name"] or "", "cat": t["category"]}
+        for t in txs[:12]
+    ]
+    return {
+        "name": name, "category": category,
+        "totalFmt": _fmt(total), "count": count,
+        "avgFmt": _fmt(total / count) if count else "0",
+        "monthlyAvgFmt": _fmt(total / len(active)) if active else "0",
+        "series": series, "max": max((s["amount"] for s in series), default=0),
+        "recent": recent, "months": len(active),
+        "first": _short_date(txs[-1]["booking_date"]) if txs else "",
+        "last": _short_date(txs[0]["booking_date"]) if txs else "",
     }
 
 

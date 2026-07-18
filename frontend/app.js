@@ -37,6 +37,10 @@ const api = {
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// Trygg verdi for bruk som streng-argument inne i onclick="fn('…')"
+const jsq = (s) =>
+  String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
 function toast(msg) {
   const t = document.createElement("div");
   t.className = "toast";
@@ -277,7 +281,7 @@ function categoryCard(d) {
     const deltaColor = sel.over ? "var(--amber)" : "var(--muted)";
     const items = sel.items
       .map(
-        (it) => `<div class="sel-item"><span>${esc(it.label)} ${it.flag ? `<span style="color:#b8820d;font-size:10.5px">${esc(it.flag)}</span>` : ""}</span><b>${esc(it.amt)}</b></div>`
+        (it) => `<div class="sel-item"><span><span class="merch-link" onclick="openMerchant('${jsq(it.name || it.label)}')">${esc(it.label)}</span> ${it.flag ? `<span style="color:#b8820d;font-size:10.5px">${esc(it.flag)}</span>` : ""}</span><b>${esc(it.amt)}</b></div>`
       )
       .join("");
     selBlock = `<div class="sel">
@@ -457,7 +461,7 @@ async function renderTransactions() {
   const descCell = (t) => {
     const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${esc(t.id)}','${esc(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
     const opts = allLabels.map((l) => `<option>${esc(l)}</option>`).join("");
-    return `<span>${esc(t.desc)}<span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
+    return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span><span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
   };
   const rows = res.rows
     .map(
@@ -675,7 +679,7 @@ async function renderAnalysis() {
     .join("");
 
   const merchRows = a.topMerchants
-    .map((m) => `<div class="sel-item"><span>${esc(m.name)} <span class="muted">${m.count} kjøp · ${esc(m.category)}</span></span><b>${m.amountFmt}</b></div>`)
+    .map((m) => `<div class="sel-item"><span><span class="merch-link" onclick="openMerchant('${jsq(m.name)}')">${esc(m.name)}</span> <span class="muted">${m.count} kjøp · ${esc(m.category)}</span></span><b>${m.amountFmt}</b></div>`)
     .join("") || '<div class="muted" style="font-size:12.5px">Ingen kjøp denne måneden.</div>';
 
   const bigRows = a.biggest
@@ -847,6 +851,38 @@ function selectCat(name) { state.sel = name; renderDashboard(); }
 function goTx() { state.view = "tx"; state.tx.category = null; render(); }
 function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.query = ""; state.tx.person = "Alle"; render(); }
 function goDash() { state.view = "dash"; loadDashboard(); }
+
+async function openMerchant(name) {
+  if (!name || name === "—") return;
+  let m;
+  try {
+    const params = new URLSearchParams({ name });
+    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    m = await api.get("/api/merchant?" + params.toString());
+  } catch (e) {
+    toast("Kunne ikke hente butikk-historikk");
+    return;
+  }
+  const mx = Math.max(1, m.max);
+  const bars = m.series
+    .map((s) => `<div style="height:${Math.max(3, Math.round((s.amount / mx) * 100))}%;background:var(--navy);opacity:${s.amount ? "1" : "0.2"}" title="${esc(s.label)}: ${s.amount}"></div>`)
+    .join("");
+  const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
+  const recent = m.recent
+    .map((r) => `<div class="sel-item"><span>${esc(r.date)} <span class="muted">${esc(r.acct)}${r.cat ? " · " + esc(r.cat) : ""}</span></span><b style="color:${r.positive ? "var(--green)" : "var(--ink)"}">${esc(r.amtFmt)}</b></div>`)
+    .join("") || '<div class="muted" style="font-size:12.5px">Ingen kjøp.</div>';
+  $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <h2>${esc(m.name)}</h2>
+      <div class="sub">${esc(m.category)} · ${m.count} kjøp · totalt ${m.totalFmt} kr · snitt ${m.avgFmt} kr/kjøp</div>
+      <div class="cf-head" style="margin-top:16px"><div class="card-title">Kostnad per måned</div><div class="cf-sub">${m.monthlyAvgFmt} kr/mnd i snitt</div></div>
+      <div class="cf-bars" style="gap:6px;margin-top:10px">${bars}</div>
+      <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
+      <div style="margin-top:18px"><div class="card-title">Siste kjøp</div><div style="margin-top:8px">${recent}</div></div>
+    </div>
+  </div>`;
+}
 
 async function changeTxCategory(id, cat) {
   try {
@@ -1138,7 +1174,7 @@ Object.assign(window, {
   addAsset, addLoan, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
-  dashMonth, toggleDemo, refreshAccount,
+  dashMonth, toggleDemo, refreshAccount, openMerchant,
 });
 
 init();
