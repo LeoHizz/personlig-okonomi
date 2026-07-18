@@ -863,7 +863,7 @@ async function syncNow() {
   const btn = document.getElementById("syncBtn");
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Synker…'; }
   try {
-    const res = await api.post("/api/sync", {});
+    const res = await api.post("/api/sync?force=true", {});
     const n = (res.synced || []).reduce((s, x) => s + (x.transactions || 0), 0);
     toast(`Synkronisert · ${n} transaksjoner oppdatert`);
     state.status = await api.get("/api/status");

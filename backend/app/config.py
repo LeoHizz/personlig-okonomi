@@ -45,6 +45,9 @@ COUNTRY = os.getenv("COUNTRY", "no").strip().lower()
 # Hvor mange dager transaksjonshistorikk vi ber om ved ny tilkobling (maks 730,
 # men de fleste norske banker gir 90).
 ACCESS_DAYS = int(os.getenv("ACCESS_DAYS", "90"))
+# Hvor langt tilbake vi ber banken om transaksjoner (banken gir det den har –
+# ofte mest rett etter fersk BankID-innlogging). Standard: ~2 år.
+HISTORY_DAYS = int(os.getenv("HISTORY_DAYS", "730"))
 
 # Offentlig URL appen nås på — brukes som redirect etter bankinnlogging.
 # F.eks. http://192.168.1.50:8080 eller https://okonomi.hjemme.no

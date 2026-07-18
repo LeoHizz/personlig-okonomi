@@ -155,7 +155,7 @@ def sync_account(account_id: str, force: bool = False) -> dict:
     except gc.Error as e:
         result["balance_error"] = str(e)
 
-    date_from = (datetime.now(timezone.utc) - timedelta(days=config.ACCESS_DAYS)).date().isoformat()
+    date_from = (datetime.now(timezone.utc) - timedelta(days=config.HISTORY_DAYS)).date().isoformat()
     txs = gc.get_transactions(account_id, date_from=date_from)
     result["transactions"] = _upsert_transactions(account_id, txs)
 
