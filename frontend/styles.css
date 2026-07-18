@@ -100,6 +100,16 @@ button{cursor:pointer}
 .cf-bars > div{flex:1;border-radius:3px 3px 0 0}
 .cf-labels{display:flex;gap:14px;font-size:11px;color:var(--muted);text-align:center;margin-top:6px}
 .cf-labels > div{flex:1}
+/* cashflow med 0-strek: positivt opp, negativt ned */
+.cf2-wrap{position:relative;margin-top:14px}
+.cf2{display:flex;gap:14px;height:120px}
+.cf2-col{flex:1;display:flex;flex-direction:column}
+.cf2-top{flex:1;display:flex;align-items:flex-end}
+.cf2-bot{flex:1;display:flex;align-items:flex-start}
+.cf2-bar{width:100%}
+.cf2-top .cf2-bar{border-radius:3px 3px 0 0}
+.cf2-bot .cf2-bar{border-radius:0 0 3px 3px}
+.cf2-zero{position:absolute;left:0;right:0;top:50%;height:1px;background:#c2ccd6;z-index:2}
 
 /* accounts + loans */
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}

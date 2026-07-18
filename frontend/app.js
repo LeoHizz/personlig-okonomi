@@ -336,24 +336,27 @@ function liquidityCard(d) {
 function cashflowCard(d) {
   const cf = d.cashflow;
   const maxAbs = Math.max(1, ...cf.map((c) => Math.abs(c.net)));
-  const bars = cf
+  const cols = cf
     .map((c) => {
-      const h = Math.max(4, Math.round((Math.abs(c.net) / maxAbs) * 100));
+      const h = Math.max(3, Math.round((Math.abs(c.net) / maxAbs) * 100));
       const color = c.current ? "var(--navy)" : c.net < 0 ? "var(--amber-bright)" : "var(--green)";
-      const op = c.current ? "1" : "0.8";
-      return `<div style="height:${h}%;background:${color};opacity:${op}"></div>`;
+      const bar = `<div class="cf2-bar" style="height:${h}%;background:${color};opacity:${c.current ? "1" : "0.9"}"></div>`;
+      return `<div class="cf2-col">
+        <div class="cf2-top">${c.net >= 0 ? bar : ""}</div>
+        <div class="cf2-bot">${c.net < 0 ? bar : ""}</div>
+      </div>`;
     })
     .join("");
   const labels = cf
     .map((c) => {
       const sign = c.netK >= 0 ? "+" : "−";
-      const cls = c.current ? 'style="font-weight:700;color:var(--navy)"' : c.net < 0 ? 'style="color:var(--amber)"' : "";
+      const cls = c.current ? 'style="font-weight:700;color:var(--navy)"' : c.net < 0 ? 'style="color:var(--amber)"' : 'style="color:var(--green)"';
       return `<div ${cls}>${c.label} ${sign}${Math.abs(c.netK)}k</div>`;
     })
     .join("");
   return `<div class="card">
     <div class="cf-head"><div class="card-title">Cashflow — netto per måned</div><div class="cf-sub">hittil i år: ${d.ytdNet.startsWith("-") ? "" : "+"}${d.ytdNet} kr</div></div>
-    <div class="cf-bars">${bars}</div>
+    <div class="cf2-wrap"><div class="cf2-zero"></div><div class="cf2">${cols}</div></div>
     <div class="cf-labels">${labels}</div>
   </div>`;
 }
