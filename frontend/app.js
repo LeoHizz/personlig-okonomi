@@ -693,26 +693,6 @@ async function renderAnalysis() {
     .map((r) => `<div class="sel-item"><span>${esc(r.name)} <span class="acc-tag">${r.months} mnd</span> <span class="muted">${esc(r.category)}</span></span><b>${r.avgFmt}/mnd</b></div>`)
     .join("") || '<div class="muted" style="font-size:12.5px">Ingen faste kjøp funnet enda (trenger noen måneders historikk).</div>';
 
-  const paceRows = a.budgetPace
-    .map((p) => {
-      const col = p.over ? "var(--amber-bright)" : "var(--green)";
-      return `<div style="margin-bottom:13px">
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px">
-          <span><span class="cat-dot" style="background:${p.color}"></span> ${esc(p.name)}</span>
-          <span>${p.spentFmt} / ${p.budgetFmt} <b style="color:${col}">${p.pctUsed}%</b></span>
-        </div>
-        <div class="pace-track"><div class="pace-fill" style="width:${Math.min(100, p.pctUsed)}%;background:${col}"></div><div class="pace-marker" style="left:${a.elapsedPct}%"></div></div>
-        <div class="muted" style="font-size:11px;margin-top:3px">Prognose måned: ${p.projectedFmt} kr${p.over ? " · over tempo ⚠" : ""}</div>
-      </div>`;
-    })
-    .join("");
-  const paceCard = a.budgetPace.length
-    ? `<div class="card" style="margin-top:12px">
-        <div class="cf-head"><div class="card-title">Budsjett-tempo</div><div class="cf-sub">${a.elapsedPct} % av måneden er gått</div></div>
-        <div style="margin-top:14px">${paceRows}</div>
-        <div class="muted" style="font-size:11px">Grå strek = hvor langt i måneden du er. Er søylen forbi streken, bruker du raskere enn budsjettet.</div>
-      </div>`
-    : "";
 
   const trendRows = a.trends
     .map((tr) => {
@@ -752,7 +732,6 @@ async function renderAnalysis() {
       ${kpi("Spart", t.savedNow, `forrige: ${t.savedPrev}`, true)}
     </div>
     ${labelCard}
-    ${paceCard}
     <div class="an-grid">
       <div class="card">
         <div class="card-title">Denne måneden vs forrige</div>

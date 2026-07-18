@@ -3,7 +3,6 @@ manuelle verdier (budsjett, boligverdi, lån) som brukeren setter i innstillinge
 """
 from __future__ import annotations
 
-import calendar
 from collections import defaultdict
 from datetime import date
 
@@ -610,34 +609,6 @@ def build_analysis(month: str | None = None, person: str | None = None,
     inc_prev, exp_prev = _income_expense(prev_txs)
     saved_now, saved_prev = inc_now - exp_now, inc_prev - exp_prev
 
-    # --- budsjett-tempo (mest nyttig for inneværende måned) ---
-    y, mo = map(int, month.split("-"))
-    dim = calendar.monthrange(y, mo)[1]
-    today = date.today()
-    if (today.year, today.month) == (y, mo):
-        elapsed = today.day / dim
-    elif date(y, mo, 1) > today:
-        elapsed = 0.0
-    else:
-        elapsed = 1.0
-    budgets = db.get_setting("budgets", {}) or {}
-    budget_pace = []
-    for name, bud in budgets.items():
-        bud = float(bud or 0)
-        if bud <= 0:
-            continue
-        spent = cur_cat.get(name, 0.0)
-        ratio = spent / bud
-        budget_pace.append({
-            "name": name,
-            "color": categorize.CATEGORY_COLORS.get(name, "#9aa0aa"),
-            "spentFmt": _fmt(spent), "budgetFmt": _fmt(bud),
-            "pctUsed": round(ratio * 100),
-            "projectedFmt": _fmt(spent / elapsed) if elapsed > 0 else _fmt(spent),
-            "over": elapsed > 0 and ratio > elapsed + 0.1 and spent > 0,
-        })
-    budget_pace.sort(key=lambda x: x["pctUsed"], reverse=True)
-
     # --- kategoritrend (siste 12 mnd) ---
     trend_months = _prev_months(month, 12)
     cat_month: dict[str, list] = defaultdict(lambda: [0.0] * 12)
@@ -684,7 +655,6 @@ def build_analysis(month: str | None = None, person: str | None = None,
         "labelBreakdown": label_breakdown,
         "comparison": comparison, "movers": movers,
         "topMerchants": top_merchants, "biggest": biggest, "recurring": recurring,
-        "budgetPace": budget_pace, "elapsedPct": round(elapsed * 100),
         "trendMonths": [_month_label(m).split()[0][:3] for m in trend_months],
         "trends": trends,
         "totals": {
