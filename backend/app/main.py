@@ -141,15 +141,15 @@ async def demo_toggle(request: Request):
 
 
 @app.get("/api/dashboard")
-def dashboard(month: str | None = None, person: str | None = None):
-    return aggregate.build_dashboard(month, person)
+def dashboard(month: str | None = None, persons: str | None = None):
+    return aggregate.build_dashboard(month, persons)
 
 
 @app.get("/api/transactions")
-def transactions(month: str | None = None, person: str | None = None,
+def transactions(month: str | None = None, persons: str | None = None,
                  category: str | None = None, q: str | None = None,
                  period: str | None = None, label: str | None = None):
-    return aggregate.build_transactions(month, person, category, q, period, label)
+    return aggregate.build_transactions(month, persons, category, q, period, label)
 
 
 @app.get("/api/budget")
@@ -158,13 +158,13 @@ def budget(year: int | None = None):
 
 
 @app.get("/api/analysis")
-def analysis(month: str | None = None, person: str | None = None, label: str | None = None):
-    return aggregate.build_analysis(month, person, label)
+def analysis(month: str | None = None, persons: str | None = None, label: str | None = None):
+    return aggregate.build_analysis(month, persons, label)
 
 
 @app.get("/api/merchant")
-def merchant(name: str, person: str | None = None, label: str | None = None):
-    return aggregate.build_merchant(name, person, label)
+def merchant(name: str, persons: str | None = None, label: str | None = None):
+    return aggregate.build_merchant(name, persons, label)
 
 
 @app.post("/api/import/csv")

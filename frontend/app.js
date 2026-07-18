@@ -7,8 +7,8 @@ const state = {
   status: null,
   data: null,
   sel: null,
-  person: "Alle",
-  tx: { person: "Alle", category: null, query: "", period: "month", label: "Alle" },
+  persons: [],
+  tx: { persons: [], category: null, query: "", period: "month", label: "Alle" },
   label: "Alle",
   budgetYear: null,
   budgetData: null,
@@ -88,7 +88,7 @@ async function loadDashboard() {
   try {
     const params = new URLSearchParams();
     if (state.month) params.set("month", state.month);
-    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    if (state.persons.length) params.set("persons", state.persons.join(","));
     const qs = params.toString();
     state.data = await api.get("/api/dashboard" + (qs ? "?" + qs : ""));
     state.month = state.data.month;
@@ -191,7 +191,7 @@ async function toggleDemo(on) {
     await api.post("/api/demo", { on });
     state.status = await api.get("/api/status");
     state.month = prevYm();
-    state.sel = null; state.person = "Alle"; state.label = "Alle"; state.view = "dash";
+    state.sel = null; state.persons = []; state.label = "Alle"; state.view = "dash";
     closeModal();
     toast(on ? "Demo-modus på 🎭 – falske tall" : "Demo-modus av – ekte data tilbake");
     await loadDashboard();
@@ -200,19 +200,28 @@ async function toggleDemo(on) {
   }
 }
 
-function personFilter(d) {
-  const persons = d.persons || ["Alle"];
-  if (persons.length <= 1) return "";  // ingen eiere satt på kontoene enda
-  const chips = persons
-    .map(
-      (p) => `<button class="person-chip ${p === state.person ? "active" : ""}" onclick="setDashPerson('${esc(p)}')">${esc(p)}</button>`
-    )
+function personChips(list) {
+  if (!list || list.length <= 1) return "";  // ingen eiere satt på kontoene enda
+  const chips = list
+    .map((p) => {
+      const active = p === "Alle" ? state.persons.length === 0 : state.persons.includes(p);
+      return `<button class="person-chip ${active ? "active" : ""}" onclick="setDashPerson('${jsq(p)}')">${esc(p)}</button>`;
+    })
     .join("");
   return `<div class="chips" style="margin:2px 0 14px">${chips}</div>`;
 }
 
+function personFilter(d) {
+  return personChips(d.persons);
+}
+
 function setDashPerson(p) {
-  state.person = p;
+  if (p === "Alle") {
+    state.persons = [];
+  } else {
+    const i = state.persons.indexOf(p);
+    if (i >= 0) state.persons.splice(i, 1); else state.persons.push(p);
+  }
   state.sel = null;
   if (state.view === "analyse") renderAnalysis();
   else loadDashboard();
@@ -427,7 +436,7 @@ async function renderTransactions() {
   try {
     const params = new URLSearchParams();
     if (state.month) params.set("month", state.month);
-    if (state.tx.person && state.tx.person !== "Alle") params.set("person", state.tx.person);
+    if (state.tx.persons.length) params.set("persons", state.tx.persons.join(","));
     if (state.tx.category) params.set("category", state.tx.category);
     if (state.tx.query) params.set("q", state.tx.query);
     if (state.tx.period) params.set("period", state.tx.period);
@@ -438,9 +447,10 @@ async function renderTransactions() {
   }
 
   const chips = res.persons
-    .map(
-      (p) => `<button class="person-chip ${p === state.tx.person ? "active" : ""}" onclick="setPerson('${esc(p)}')">${esc(p)}</button>`
-    )
+    .map((p) => {
+      const active = p === "Alle" ? state.tx.persons.length === 0 : state.tx.persons.includes(p);
+      return `<button class="person-chip ${active ? "active" : ""}" onclick="setPerson('${jsq(p)}')">${esc(p)}</button>`;
+    })
     .join("");
 
   const periodChips = [["month", "Denne mnd"], ["3m", "3 mnd"], ["12m", "12 mnd"], ["all", "Alt"]]
@@ -632,7 +642,7 @@ async function renderAnalysis() {
   try {
     const params = new URLSearchParams();
     if (state.month) params.set("month", state.month);
-    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    if (state.persons.length) params.set("persons", state.persons.join(","));
     if (state.label && state.label !== "Alle") params.set("label", state.label);
     a = await api.get("/api/analysis?" + params.toString());
   } catch (e) {
@@ -641,11 +651,7 @@ async function renderAnalysis() {
     return;
   }
 
-  const chips = (a.persons || ["Alle"]).length > 1
-    ? `<div class="chips" style="margin:2px 0 14px">${a.persons
-        .map((p) => `<button class="person-chip ${p === state.person ? "active" : ""}" onclick="setDashPerson('${esc(p)}')">${esc(p)}</button>`)
-        .join("")}</div>`
-    : "";
+  const chips = personChips(a.persons);
 
   const labelChips = (a.allLabels || []).length
     ? `<div class="chips" style="margin:2px 0 14px">${["Alle", ...a.allLabels]
@@ -804,7 +810,15 @@ function onQuery(v) {
   clearTimeout(queryTimer);
   queryTimer = setTimeout(renderTransactions, 220);
 }
-function setPerson(p) { state.tx.person = p; renderTransactions(); }
+function setPerson(p) {
+  if (p === "Alle") {
+    state.tx.persons = [];
+  } else {
+    const i = state.tx.persons.indexOf(p);
+    if (i >= 0) state.tx.persons.splice(i, 1); else state.tx.persons.push(p);
+  }
+  renderTransactions();
+}
 function setTxPeriod(p) { state.tx.period = p; renderTransactions(); }
 function setTxLabel(l) { state.tx.label = l; renderTransactions(); }
 
@@ -831,7 +845,7 @@ async function removeTxLabel(id, label) {
 function clearCatFilter() { state.tx.category = null; renderTransactions(); }
 function selectCat(name) { state.sel = name; renderDashboard(); }
 function goTx() { state.view = "tx"; state.tx.category = null; render(); }
-function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.query = ""; state.tx.person = "Alle"; render(); }
+function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.query = ""; state.tx.persons = []; render(); }
 function goDash() { state.view = "dash"; loadDashboard(); }
 
 async function openMerchant(name) {
@@ -839,7 +853,7 @@ async function openMerchant(name) {
   let m;
   try {
     const params = new URLSearchParams({ name });
-    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    if (state.persons.length) params.set("persons", state.persons.join(","));
     m = await api.get("/api/merchant?" + params.toString());
   } catch (e) {
     toast("Kunne ikke hente butikk-historikk");

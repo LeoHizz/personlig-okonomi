@@ -65,16 +65,26 @@ def account_current_balance(account_id: str) -> float:
     return rows[0]["amount"]
 
 
-def _month_transactions(month: str, person: str | None = None) -> list[dict]:
+def _norm_persons(persons) -> list[str]:
+    """Godta liste eller kommaseparert streng; fjern tomme og 'Alle'."""
+    if not persons:
+        return []
+    if isinstance(persons, str):
+        persons = persons.split(",")
+    return [p.strip() for p in persons if p and p.strip() and p.strip() != "Alle"]
+
+
+def _month_transactions(month: str, persons=None) -> list[dict]:
+    persons = _norm_persons(persons)
     sql = (
         "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
         "FROM transactions t JOIN accounts a ON a.id = t.account_id "
         "WHERE a.hidden = 0 AND substr(t.booking_date,1,7) = ?"
     )
     params: list = [month]
-    if person and person != "Alle":
-        sql += " AND a.owner = ?"
-        params.append(person)
+    if persons:
+        sql += " AND a.owner IN (" + ",".join("?" for _ in persons) + ")"
+        params += persons
     sql += " ORDER BY t.booking_date DESC"
     return [dict(r) for r in db.query(sql, params)]
 
@@ -96,18 +106,19 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
-def build_dashboard(month: str | None = None, person: str | None = None) -> dict:
+def build_dashboard(month: str | None = None, persons=None) -> dict:
     month = month or current_month()
-    filtering = bool(person and person != "Alle")
-    txs = _month_transactions(month, person)
+    persons = _norm_persons(persons)
+    filtering = bool(persons)
+    txs = _month_transactions(month, persons)
     income, expense = _income_expense(txs)
 
     budgets = db.get_setting("budgets", {}) or {}
     manual_assets = db.get_setting("manual_assets", []) or []
     manual_liabilities = db.get_setting("manual_liabilities", []) or []
     if filtering:
-        manual_assets = [x for x in manual_assets if (x.get("owner") or "") == person]
-        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "") == person]
+        manual_assets = [x for x in manual_assets if (x.get("owner") or "") in persons]
+        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "") in persons]
     household = db.get_setting("household_name", "Min økonomi")
     savings_goal = db.get_setting("savings_goal_pct", 20)
 
@@ -190,9 +201,10 @@ def build_dashboard(month: str | None = None, person: str | None = None) -> dict
 
     # --- kontoer ---
     if filtering:
+        ph = ",".join("?" for _ in persons)
         acc_rows = db.query(
-            "SELECT * FROM accounts WHERE hidden = 0 AND owner = ? ORDER BY sort_order, name",
-            (person,),
+            f"SELECT * FROM accounts WHERE hidden = 0 AND owner IN ({ph}) ORDER BY sort_order, name",
+            persons,
         )
     else:
         acc_rows = db.query(
@@ -308,7 +320,7 @@ def build_dashboard(month: str | None = None, person: str | None = None) -> dict
     # --- cashflow siste 7 måneder ---
     cashflow = []
     for m in _prev_months(month, 7):
-        mtx = _month_transactions(m, person)
+        mtx = _month_transactions(m, persons)
         inc, exp = _income_expense(mtx)
         net = inc - exp
         cashflow.append(
@@ -341,7 +353,7 @@ def build_dashboard(month: str | None = None, person: str | None = None) -> dict
         "monthLabel": _month_label(month),
         "household": household,
         "persons": _persons_list(),
-        "person": person or "Alle",
+        "selectedPersons": persons,
         "kpis": {
             "netWorth": _fmt(net_worth),
             "netWorthNote": "inkl. manuelle verdier − lån"
@@ -442,16 +454,17 @@ def _range_transactions(month: str, period: str) -> list[dict]:
 _PERIOD_LABELS = {"month": "Denne måneden", "3m": "Siste 3 mnd", "12m": "Siste 12 mnd", "all": "Alt"}
 
 
-def build_transactions(month: str | None, person: str | None, category: str | None,
+def build_transactions(month: str | None, persons, category: str | None,
                        query: str | None, period: str | None = None,
                        label: str | None = None) -> dict:
     month = month or current_month()
+    persons = _norm_persons(persons)
     period = period if period in _PERIOD_LABELS else "month"
     rows = _range_transactions(month, period)
     q = (query or "").lower().strip()
     out = []
     for t in rows:
-        if person and person != "Alle" and (t["owner"] or "") != person:
+        if persons and (t["owner"] or "") not in persons:
             continue
         if category and t["category"] != category:
             continue
@@ -477,6 +490,7 @@ def build_transactions(month: str | None, person: str | None, category: str | No
             }
         )
     return {"rows": out, "count": len(out), "persons": _persons_list(),
+            "selectedPersons": persons,
             "categories": list(categorize.CATEGORY_ORDER) + ["Inntekt", "Overføring"],
             "allLabels": labelmod.all_labels(), "label": label or "Alle",
             "month": month, "monthLabel": _month_label(month),
@@ -500,15 +514,16 @@ def _category_expense_map(txs: list[dict]) -> dict:
     return d
 
 
-def build_analysis(month: str | None = None, person: str | None = None,
+def build_analysis(month: str | None = None, persons=None,
                    label: str | None = None) -> dict:
     month = month or current_month()
+    persons = _norm_persons(persons)
     prev_month = _prev_months(month, 2)[0]
     last4 = _prev_months(month, 4)
     prior3 = last4[:3]
 
     def mtx(m: str) -> list[dict]:
-        rows = _month_transactions(m, person)
+        rows = _month_transactions(m, persons)
         if label and label != "Alle":
             rows = [t for t in rows if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
         return rows
@@ -520,7 +535,7 @@ def build_analysis(month: str | None = None, person: str | None = None,
 
     # kostnad per label (for inneværende måned, uavhengig av valgt label)
     by_label: dict[str, float] = defaultdict(float)
-    for t in _month_transactions(month, person):
+    for t in _month_transactions(month, persons):
         if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
             for lab in labelmod.labels_for(t["counterparty"], t["remittance"]):
                 by_label[lab] += -t["amount"]
@@ -650,7 +665,7 @@ def build_analysis(month: str | None = None, person: str | None = None,
     return {
         "month": month, "monthLabel": _month_label(month),
         "prevMonthLabel": _month_label(prev_month),
-        "persons": _persons_list(), "person": person or "Alle",
+        "persons": _persons_list(), "selectedPersons": persons,
         "allLabels": labelmod.all_labels(), "label": label or "Alle",
         "labelBreakdown": label_breakdown,
         "comparison": comparison, "movers": movers,
@@ -666,9 +681,10 @@ def build_analysis(month: str | None = None, person: str | None = None,
     }
 
 
-def build_merchant(name: str | None, person: str | None = None, label: str | None = None) -> dict:
+def build_merchant(name: str | None, persons=None, label: str | None = None) -> dict:
     """Historikk for én butikk/motpart over tid (kostnad per måned + siste kjøp)."""
     name = (name or "").strip()
+    persons = _norm_persons(persons)
     if not name:
         return {"name": "", "count": 0, "series": [], "recent": []}
     rows = db.query(
@@ -679,8 +695,8 @@ def build_merchant(name: str | None, person: str | None = None, label: str | Non
         (name,),
     )
     txs = [dict(r) for r in rows]
-    if person and person != "Alle":
-        txs = [t for t in txs if (t["owner"] or "") == person]
+    if persons:
+        txs = [t for t in txs if (t["owner"] or "") in persons]
     if label and label != "Alle":
         txs = [t for t in txs if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
 
