@@ -351,26 +351,31 @@ def refresh_all_accounts():
 
 @app.post("/api/accounts-dedupe")
 def dedupe_accounts():
-    """Finn kontoer med samme kontonummer (IBAN) og deaktiver dublettene –
-    beholder den med flest transaksjoner aktiv. Fjerner også dobbelttelling."""
-    rows = db.query("SELECT id, iban FROM accounts WHERE iban IS NOT NULL AND iban != '' AND hidden = 0")
+    """Finn kontoer med samme kontonummer (IBAN) og behold den beste (har saldo,
+    så flest transaksjoner) aktiv – deaktiver resten. Vurderer også skjulte, så
+    den kan gjenopprette hvis feil kopi ble beholdt tidligere."""
+    rows = db.query("SELECT id, iban FROM accounts WHERE iban IS NOT NULL AND iban != ''")
     groups: dict[str, list] = defaultdict(list)
     for r in rows:
         groups[r["iban"]].append(r["id"])
-    hidden = 0
+
+    def score(aid: str):
+        has_bal = 1 if db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (aid,)) else 0
+        n = db.query("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?", (aid,))[0]["n"]
+        return (has_bal, n)
+
+    changed = 0
     for iban, ids in groups.items():
         if len(ids) < 2:
             continue
-        counts = {
-            aid: db.query("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?", (aid,))[0]["n"]
-            for aid in ids
-        }
-        keep = max(counts, key=counts.get)
+        keep = max(ids, key=score)
         for aid in ids:
-            if aid != keep:
-                db.execute("UPDATE accounts SET hidden = 1 WHERE id = ?", (aid,))
-                hidden += 1
-    return {"hidden": hidden}
+            want = 0 if aid == keep else 1
+            cur = db.query("SELECT hidden FROM accounts WHERE id = ?", (aid,))[0]["hidden"]
+            if cur != want:
+                db.execute("UPDATE accounts SET hidden = ? WHERE id = ?", (want, aid))
+                changed += 1
+    return {"hidden": changed}
 
 
 @app.post("/api/transactions/{tx_id}/category")
