@@ -3,10 +3,11 @@ manuelle verdier (budsjett, boligverdi, lån) som brukeren setter i innstillinge
 """
 from __future__ import annotations
 
+import calendar
 from collections import defaultdict
 from datetime import date
 
-from . import categorize, db
+from . import categorize, db, labels as labelmod
 
 # Kategorier som ikke er "forbruk" i donut/oversikt
 NON_EXPENSE = {"Inntekt", "Overføring"}
@@ -37,6 +38,16 @@ def _prev_months(month: str, count: int) -> list[str]:
     return list(reversed(out))
 
 
+def _months_between(a: str, b: str) -> int:
+    """Antall måneder fra a til b (begge 'YYYY-MM'). Negativ hvis b er før a."""
+    try:
+        ay, am = (int(x) for x in a.split("-")[:2])
+        by, bm = (int(x) for x in b.split("-")[:2])
+    except (ValueError, AttributeError, TypeError):
+        return 0
+    return (by - ay) * 12 + (bm - am)
+
+
 def _fmt(n: float) -> str:
     """Norsk tallformat: mellomrom som tusenskille, ingen desimaler."""
     return f"{round(n):,}".replace(",", " ")
@@ -55,15 +66,27 @@ def account_current_balance(account_id: str) -> float:
     return rows[0]["amount"]
 
 
-def _month_transactions(month: str) -> list[dict]:
-    rows = db.query(
+def _month_transactions(month: str, person: str | None = None) -> list[dict]:
+    sql = (
         "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
         "FROM transactions t JOIN accounts a ON a.id = t.account_id "
-        "WHERE a.hidden = 0 AND substr(t.booking_date,1,7) = ? "
-        "ORDER BY t.booking_date DESC",
-        (month,),
+        "WHERE a.hidden = 0 AND substr(t.booking_date,1,7) = ?"
     )
-    return [dict(r) for r in rows]
+    params: list = [month]
+    if person and person != "Alle":
+        sql += " AND a.owner = ?"
+        params.append(person)
+    sql += " ORDER BY t.booking_date DESC"
+    return [dict(r) for r in db.query(sql, params)]
+
+
+def _persons_list() -> list[str]:
+    return ["Alle"] + [
+        r["owner"] for r in db.query(
+            "SELECT DISTINCT owner FROM accounts "
+            "WHERE owner IS NOT NULL AND owner != '' AND hidden = 0 ORDER BY owner"
+        )
+    ]
 
 
 def _income_expense(txs: list[dict]) -> tuple[float, float]:
@@ -74,14 +97,18 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
-def build_dashboard(month: str | None = None) -> dict:
+def build_dashboard(month: str | None = None, person: str | None = None) -> dict:
     month = month or current_month()
-    txs = _month_transactions(month)
+    filtering = bool(person and person != "Alle")
+    txs = _month_transactions(month, person)
     income, expense = _income_expense(txs)
 
     budgets = db.get_setting("budgets", {}) or {}
     manual_assets = db.get_setting("manual_assets", []) or []
     manual_liabilities = db.get_setting("manual_liabilities", []) or []
+    if filtering:
+        manual_assets = [x for x in manual_assets if (x.get("owner") or "") == person]
+        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "") == person]
     household = db.get_setting("household_name", "Min økonomi")
     savings_goal = db.get_setting("savings_goal_pct", 20)
 
@@ -162,9 +189,15 @@ def build_dashboard(month: str | None = None) -> dict:
     fixed_expense = sum(c["amount"] for c in categories if c["fixed"])
 
     # --- kontoer ---
-    acc_rows = db.query(
-        "SELECT * FROM accounts WHERE hidden = 0 ORDER BY sort_order, name"
-    )
+    if filtering:
+        acc_rows = db.query(
+            "SELECT * FROM accounts WHERE hidden = 0 AND owner = ? ORDER BY sort_order, name",
+            (person,),
+        )
+    else:
+        acc_rows = db.query(
+            "SELECT * FROM accounts WHERE hidden = 0 ORDER BY sort_order, name"
+        )
     accounts = []
     asset_sum = 0.0
     for a in acc_rows:
@@ -200,12 +233,57 @@ def build_dashboard(month: str | None = None) -> dict:
             }
         )
 
+    # --- likviditet (disponibelt) + utvikling ---
+    # Disponibelt = sum av tilkoblede bankkontoers saldo (is_asset). Utviklingen
+    # rekonstrueres bakover fra dagens saldo + transaksjonene på disse kontoene.
+    liquid_ids = [a["id"] for a in acc_rows if a["is_asset"]]
+    current_liquid = asset_sum
+    net_by_month: dict[str, float] = {}
+    if liquid_ids:
+        ph = ",".join("?" for _ in liquid_ids)
+        for r in db.query(
+            f"SELECT substr(booking_date,1,7) AS m, SUM(amount) AS net FROM transactions "
+            f"WHERE account_id IN ({ph}) AND booking_date IS NOT NULL GROUP BY m",
+            liquid_ids,
+        ):
+            net_by_month[r["m"]] = r["net"] or 0.0
+    bal = float(current_liquid)
+    liq_points = []
+    for m in reversed(_prev_months(month, 12)):
+        liq_points.append({"month": m, "label": _month_label(m).split()[0][:3],
+                           "value": round(bal), "current": m == month})
+        bal -= net_by_month.get(m, 0.0)
+    liq_points.reverse()
+    liq_vals = [p["value"] for p in liq_points]
+    ref3 = liq_points[-4]["value"] if len(liq_points) >= 4 else (liq_points[0]["value"] if liq_points else 0)
+    change3m = round(current_liquid - ref3)
+    liquidity = {
+        "current": round(current_liquid),
+        "currentFmt": _fmt(current_liquid),
+        "points": liq_points,
+        "min": min(liq_vals) if liq_vals else 0,
+        "max": max(liq_vals) if liq_vals else 0,
+        "change3m": change3m,
+        "change3mFmt": ("+" if change3m >= 0 else "−") + _fmt(abs(change3m)),
+        "up": change3m >= 0,
+    }
+
     # --- lån ---
     liability_sum = 0.0
     loans = []
     for lb in manual_liabilities:
-        balance = float(lb.get("balance", 0))
-        original = float(lb.get("original", 0)) or balance
+        estimated = False
+        if lb.get("auto"):
+            # Estimert restgjeld = startsaldo − avdrag × antall måneder siden start.
+            start_balance = float(lb.get("start_balance", 0) or 0)
+            monthly = float(lb.get("monthly_payment", 0) or 0)
+            elapsed = max(0, _months_between(lb.get("start_date", ""), month))
+            balance = max(0.0, start_balance - monthly * elapsed)
+            original = float(lb.get("original", 0) or 0) or start_balance or balance
+            estimated = True
+        else:
+            balance = float(lb.get("balance", 0) or 0)
+            original = float(lb.get("original", 0) or 0) or balance
         liability_sum += balance
         paid = 1 - (balance / original) if original else 0
         loans.append(
@@ -215,8 +293,10 @@ def build_dashboard(month: str | None = None) -> dict:
                 "rate": lb.get("rate", ""),
                 "balance": round(balance),
                 "balanceFmt": _fmt(balance),
-                "paidPct": round(paid * 100),
+                "paidPct": max(0, min(100, round(paid * 100))),
                 "note": lb.get("note", ""),
+                "estimated": estimated,
+                "monthlyPayment": round(float(lb.get("monthly_payment", 0) or 0)) if estimated else None,
                 "paidThisMonth": lb.get("paid_this_month"),
                 "interest": lb.get("interest"),
                 "principal": lb.get("principal"),
@@ -228,7 +308,7 @@ def build_dashboard(month: str | None = None) -> dict:
     # --- cashflow siste 7 måneder ---
     cashflow = []
     for m in _prev_months(month, 7):
-        mtx = _month_transactions(m)
+        mtx = _month_transactions(m, person)
         inc, exp = _income_expense(mtx)
         net = inc - exp
         cashflow.append(
@@ -250,10 +330,18 @@ def build_dashboard(month: str | None = None) -> dict:
     # --- abonnementer ---
     subs = next((c for c in categories if c["name"] == "Abonnementer"), None)
 
+    # --- innsikt/varsler ---
+    reminders = _csv_reminders()
+    summary_text = _build_summary(month, income, total_expense, total_budget, savings_rate, savings_goal, categories)
+    if reminders:
+        summary_text = summary_text + " ⚠ " + reminders[0]
+
     return {
         "month": month,
         "monthLabel": _month_label(month),
         "household": household,
+        "persons": _persons_list(),
+        "person": person or "Alle",
         "kpis": {
             "netWorth": _fmt(net_worth),
             "netWorthNote": "inkl. manuelle verdier − lån"
@@ -271,6 +359,7 @@ def build_dashboard(month: str | None = None) -> dict:
         "totalExpenseFmt": _fmt(total_expense),
         "accounts": accounts,
         "loans": loans,
+        "liquidity": liquidity,
         "cashflow": cashflow,
         "ytdNet": _fmt(ytd_net),
         "budget": {
@@ -287,9 +376,26 @@ def build_dashboard(month: str | None = None) -> dict:
             "remainingFmt": _fmt(max(0, total_budget - total_expense)) if total_budget else "0",
         },
         "subscriptions": subs,
-        "summary": _build_summary(month, income, total_expense, total_budget, savings_rate, savings_goal, categories),
+        "summary": summary_text,
+        "reminders": reminders,
         "txCount": len(txs),
     }
+
+
+def _csv_reminders() -> list[str]:
+    """Varsle dersom en CSV-importert konto (f.eks. Coop-kortet) mangler ferske tall."""
+    out = []
+    cur = current_month()
+    prev = _prev_months(cur, 2)[0]
+    for a in db.query("SELECT id, name FROM accounts WHERE institution_id = 'csv-import' AND hidden = 0"):
+        row = db.query("SELECT MAX(booking_date) AS m FROM transactions WHERE account_id = ?", (a["id"],))
+        lastm = (row[0]["m"] or "")[:7]
+        if not lastm or lastm < prev:
+            out.append(
+                f"«{a['name']}» mangler ferske tall (siste: {lastm or 'ingen'}). "
+                f"Husk å laste opp ny CSV så regnskapet blir riktig."
+            )
+    return out
 
 
 def _build_summary(month, income, expense, total_budget, savings_rate, goal, categories) -> str:
@@ -317,9 +423,31 @@ def _build_summary(month, income, expense, total_budget, savings_rate, goal, cat
     return " ".join(parts)
 
 
-def build_transactions(month: str | None, person: str | None, category: str | None, query: str | None) -> dict:
+def _range_transactions(month: str, period: str) -> list[dict]:
+    base = ("SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
+            "FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE a.hidden = 0")
+    if period == "all":
+        rows = db.query(base + " ORDER BY t.booking_date DESC")
+    else:
+        n = {"month": 1, "3m": 3, "12m": 12}.get(period, 1)
+        start = _prev_months(month, n)[0]
+        rows = db.query(
+            base + " AND substr(t.booking_date,1,7) >= ? AND substr(t.booking_date,1,7) <= ? "
+            "ORDER BY t.booking_date DESC",
+            (start, month),
+        )
+    return [dict(r) for r in rows]
+
+
+_PERIOD_LABELS = {"month": "Denne måneden", "3m": "Siste 3 mnd", "12m": "Siste 12 mnd", "all": "Alt"}
+
+
+def build_transactions(month: str | None, person: str | None, category: str | None,
+                       query: str | None, period: str | None = None,
+                       label: str | None = None) -> dict:
     month = month or current_month()
-    rows = _month_transactions(month)
+    period = period if period in _PERIOD_LABELS else "month"
+    rows = _range_transactions(month, period)
     q = (query or "").lower().strip()
     out = []
     for t in rows:
@@ -330,6 +458,9 @@ def build_transactions(month: str | None, person: str | None, category: str | No
         text = f"{t['counterparty']} {t['remittance']} {t['category']}".lower()
         if q and q not in text:
             continue
+        lbls = labelmod.labels_for(t["counterparty"], t["remittance"])
+        if label and label != "Alle" and label not in lbls:
+            continue
         amt = t["amount"]
         out.append(
             {
@@ -339,17 +470,17 @@ def build_transactions(month: str | None, person: str | None, category: str | No
                 "cat": t["category"],
                 "acct": t["bank_code"] or t["acct_name"] or "",
                 "person": t["owner"] or "",
+                "labels": lbls,
                 "amount": amt,
                 "amtFmt": ("+" if amt > 0 else "−") + _fmt(abs(amt)),
                 "positive": amt > 0,
             }
         )
-    persons = ["Alle"] + [
-        r["owner"] for r in db.query(
-            "SELECT DISTINCT owner FROM accounts WHERE owner IS NOT NULL AND owner != '' ORDER BY owner"
-        )
-    ]
-    return {"rows": out, "count": len(out), "persons": persons, "month": month, "monthLabel": _month_label(month)}
+    return {"rows": out, "count": len(out), "persons": _persons_list(),
+            "categories": list(categorize.CATEGORY_ORDER) + ["Inntekt", "Overføring"],
+            "allLabels": labelmod.all_labels(), "label": label or "Alle",
+            "month": month, "monthLabel": _month_label(month),
+            "period": period, "periodLabel": _PERIOD_LABELS[period]}
 
 
 def _short_date(iso: str | None) -> str:
@@ -357,6 +488,211 @@ def _short_date(iso: str | None) -> str:
         return iso or ""
     y, m, d = iso[:10].split("-")
     return f"{d}.{m}"
+
+
+# ---------- analyse / innsikt ----------
+
+def _category_expense_map(txs: list[dict]) -> dict:
+    d: dict[str, float] = defaultdict(float)
+    for t in txs:
+        if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
+            d[t["category"]] += -t["amount"]
+    return d
+
+
+def build_analysis(month: str | None = None, person: str | None = None,
+                   label: str | None = None) -> dict:
+    month = month or current_month()
+    prev_month = _prev_months(month, 2)[0]
+    last4 = _prev_months(month, 4)
+    prior3 = last4[:3]
+
+    def mtx(m: str) -> list[dict]:
+        rows = _month_transactions(m, person)
+        if label and label != "Alle":
+            rows = [t for t in rows if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
+        return rows
+
+    cur_txs = mtx(month)
+    prev_txs = mtx(prev_month)
+    cur_cat = _category_expense_map(cur_txs)
+    prev_cat = _category_expense_map(prev_txs)
+
+    # kostnad per label (for inneværende måned, uavhengig av valgt label)
+    by_label: dict[str, float] = defaultdict(float)
+    for t in _month_transactions(month, person):
+        if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
+            for lab in labelmod.labels_for(t["counterparty"], t["remittance"]):
+                by_label[lab] += -t["amount"]
+    label_breakdown = sorted(
+        [{"label": k, "amountFmt": _fmt(v)} for k, v in by_label.items()],
+        key=lambda x: x["label"],
+    )
+
+    avg_cat: dict[str, float] = defaultdict(float)
+    for m in prior3:
+        for cat, amt in _category_expense_map(mtx(m)).items():
+            avg_cat[cat] += amt / 3.0
+
+    comparison = []
+    for c in set(cur_cat) | set(prev_cat) | set(avg_cat):
+        cur, prev, avg = cur_cat.get(c, 0.0), prev_cat.get(c, 0.0), avg_cat.get(c, 0.0)
+        delta = cur - prev
+        comparison.append({
+            "name": c,
+            "color": categorize.CATEGORY_COLORS.get(c, "#9aa0aa"),
+            "current": round(cur), "currentFmt": _fmt(cur),
+            "prev": round(prev), "prevFmt": _fmt(prev),
+            "delta": round(delta),
+            "deltaFmt": ("+" if delta >= 0 else "−") + _fmt(abs(delta)),
+            "deltaPct": round(delta / prev * 100) if prev else (100 if cur else 0),
+            "up": delta > 0,
+            "avgFmt": _fmt(avg),
+            "vsAvgPct": round((cur - avg) / avg * 100) if avg else 0,
+        })
+    comparison.sort(key=lambda x: x["current"], reverse=True)
+
+    movers = sorted(
+        [c for c in comparison if abs(c["delta"]) >= 100 and (c["prev"] or c["current"])],
+        key=lambda x: abs(x["delta"]), reverse=True,
+    )[:4]
+
+    # toppbutikker denne måneden
+    merch: dict[str, list] = defaultdict(lambda: [0.0, 0, ""])
+    for t in cur_txs:
+        if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
+            key = t["counterparty"] or t["remittance"] or "Diverse"
+            merch[key][0] += -t["amount"]
+            merch[key][1] += 1
+            merch[key][2] = t["category"]
+    top_merchants = [
+        {"name": k, "amountFmt": _fmt(v[0]), "count": v[1], "category": v[2]}
+        for k, v in sorted(merch.items(), key=lambda kv: kv[1][0], reverse=True)[:8]
+    ]
+
+    # største enkeltkjøp
+    exp = sorted(
+        [t for t in cur_txs if t["amount"] < 0 and t["category"] not in NON_EXPENSE],
+        key=lambda t: t["amount"],
+    )[:6]
+    biggest = [
+        {"date": _short_date(t["booking_date"]),
+         "desc": t["counterparty"] or t["remittance"] or "—",
+         "amountFmt": _fmt(-t["amount"]), "category": t["category"],
+         "person": t["owner"] or ""}
+        for t in exp
+    ]
+
+    # gjentakende kjøp (i minst 3 av siste 4 måneder)
+    seen: dict[str, set] = defaultdict(set)
+    tot: dict[str, float] = defaultdict(float)
+    meta: dict[str, tuple] = {}
+    for m in last4:
+        for t in mtx(m):
+            if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
+                key = (t["counterparty"] or t["remittance"] or "").strip().lower()
+                if not key:
+                    continue
+                seen[key].add(m)
+                tot[key] += -t["amount"]
+                meta[key] = (t["counterparty"] or t["remittance"], t["category"])
+    recurring = sorted(
+        [
+            {"name": meta[k][0], "category": meta[k][1], "months": len(ms),
+             "avgFmt": _fmt(tot[k] / len(ms))}
+            for k, ms in seen.items() if len(ms) >= 3
+        ],
+        key=lambda r: r["months"], reverse=True,
+    )[:8]
+
+    inc_now, exp_now = _income_expense(cur_txs)
+    inc_prev, exp_prev = _income_expense(prev_txs)
+    saved_now, saved_prev = inc_now - exp_now, inc_prev - exp_prev
+
+    # --- budsjett-tempo (mest nyttig for inneværende måned) ---
+    y, mo = map(int, month.split("-"))
+    dim = calendar.monthrange(y, mo)[1]
+    today = date.today()
+    if (today.year, today.month) == (y, mo):
+        elapsed = today.day / dim
+    elif date(y, mo, 1) > today:
+        elapsed = 0.0
+    else:
+        elapsed = 1.0
+    budgets = db.get_setting("budgets", {}) or {}
+    budget_pace = []
+    for name, bud in budgets.items():
+        bud = float(bud or 0)
+        if bud <= 0:
+            continue
+        spent = cur_cat.get(name, 0.0)
+        ratio = spent / bud
+        budget_pace.append({
+            "name": name,
+            "color": categorize.CATEGORY_COLORS.get(name, "#9aa0aa"),
+            "spentFmt": _fmt(spent), "budgetFmt": _fmt(bud),
+            "pctUsed": round(ratio * 100),
+            "projectedFmt": _fmt(spent / elapsed) if elapsed > 0 else _fmt(spent),
+            "over": elapsed > 0 and ratio > elapsed + 0.1 and spent > 0,
+        })
+    budget_pace.sort(key=lambda x: x["pctUsed"], reverse=True)
+
+    # --- kategoritrend (siste 12 mnd) ---
+    trend_months = _prev_months(month, 12)
+    cat_month: dict[str, list] = defaultdict(lambda: [0.0] * 12)
+    for idx, m in enumerate(trend_months):
+        for c, amt in _category_expense_map(mtx(m)).items():
+            cat_month[c][idx] += amt
+    trends = sorted(
+        [
+            {"name": c, "color": categorize.CATEGORY_COLORS.get(c, "#9aa0aa"),
+             "values": [round(v) for v in vals], "max": round(max(vals)),
+             "totalFmt": _fmt(sum(vals)), "lastFmt": _fmt(vals[-1])}
+            for c, vals in cat_month.items() if sum(vals) > 0
+        ],
+        key=lambda t: sum(t["values"]), reverse=True,
+    )
+
+    # auto-innsikt
+    insights = []
+    if comparison:
+        top = comparison[0]
+        insights.append(f"Mest brukt denne måneden: {top['name']} med {top['currentFmt']} kr.")
+    if movers:
+        m0 = movers[0]
+        insights.append(
+            f"Størst endring: {m0['name']} – {m0['deltaFmt']} kr "
+            f"{'mer' if m0['up'] else 'mindre'} enn forrige måned "
+            f"({'+' if m0['up'] else '−'}{abs(m0['deltaPct'])} %)."
+        )
+    outliers = [c for c in comparison if c["vsAvgPct"] >= 25 and c["current"] >= 500]
+    if outliers:
+        o = max(outliers, key=lambda c: c["vsAvgPct"])
+        insights.append(f"{o['name']} ligger {o['vsAvgPct']} % over 3-måneders snittet.")
+    if inc_now > 0:
+        insights.append(
+            f"Du satt igjen med {_fmt(saved_now)} kr denne måneden "
+            f"(mot {_fmt(saved_prev)} kr forrige)."
+        )
+
+    return {
+        "month": month, "monthLabel": _month_label(month),
+        "prevMonthLabel": _month_label(prev_month),
+        "persons": _persons_list(), "person": person or "Alle",
+        "allLabels": labelmod.all_labels(), "label": label or "Alle",
+        "labelBreakdown": label_breakdown,
+        "comparison": comparison, "movers": movers,
+        "topMerchants": top_merchants, "biggest": biggest, "recurring": recurring,
+        "budgetPace": budget_pace, "elapsedPct": round(elapsed * 100),
+        "trendMonths": [_month_label(m).split()[0][:3] for m in trend_months],
+        "trends": trends,
+        "totals": {
+            "expenseNow": _fmt(exp_now), "expensePrev": _fmt(exp_prev), "expenseUp": exp_now > exp_prev,
+            "incomeNow": _fmt(inc_now), "incomePrev": _fmt(inc_prev),
+            "savedNow": _fmt(saved_now), "savedPrev": _fmt(saved_prev),
+        },
+        "insights": insights,
+    }
 
 
 # ---------- budsjett / regnskap ----------

@@ -11,10 +11,31 @@ from . import config
 
 _local = threading.local()
 
+# Demo-modus: bytter hele databasen til en egen demo.db uten å røre ekte data.
+# Flagget er kun i minnet -> nullstilles ved omstart (ekte data igjen).
+_DEMO = False
 
-def _connect() -> sqlite3.Connection:
-    Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
+
+def demo_path() -> str:
+    return str(Path(config.DB_PATH).parent / "demo.db")
+
+
+def active_path() -> str:
+    return demo_path() if _DEMO else config.DB_PATH
+
+
+def set_demo(flag: bool) -> None:
+    global _DEMO
+    _DEMO = bool(flag)
+
+
+def is_demo() -> bool:
+    return _DEMO
+
+
+def _connect(path: str) -> sqlite3.Connection:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -22,10 +43,15 @@ def _connect() -> sqlite3.Connection:
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = getattr(_local, "conn", None)
+    conns = getattr(_local, "conns", None)
+    if conns is None:
+        conns = {}
+        _local.conns = conns
+    path = active_path()
+    conn = conns.get(path)
     if conn is None:
-        conn = _connect()
-        _local.conn = conn
+        conn = _connect(path)
+        conns[path] = conn
     return conn
 
 

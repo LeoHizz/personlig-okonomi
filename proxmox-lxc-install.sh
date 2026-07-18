@@ -131,6 +131,7 @@ pct exec "$CTID" -- bash -c "
   if [ ! -f \"\$KEY\" ]; then
     openssl genrsa -out \"\$KEY\" 4096 2>/dev/null
     openssl rsa -in \"\$KEY\" -pubout -out /opt/okonomi/data/enablebanking_public.pem 2>/dev/null
+    openssl req -new -x509 -days 3650 -key \"\$KEY\" -out /opt/okonomi/data/enablebanking_cert.pem -subj '/CN=personlig-okonomi' 2>/dev/null
     chmod 600 \"\$KEY\"
   fi
 "
@@ -210,17 +211,19 @@ echo "     Endre senere: pct exec $CTID -- nano /opt/okonomi/.env  (så: systemc
 echo
 if [ "$PROVIDER" = "enablebanking" ] && [ -z "$EB_APP_ID" ]; then
   echo "  ⚠  Enable Banking må registreres (gratis) for at live bankkobling skal virke:"
-  echo "     1) Gå til https://enablebanking.com/cp og opprett en app."
+  echo "     1) Gå til https://enablebanking.com/cp og opprett en app:"
+  echo "        - Environment:   Production"
+  echo "        - Nøkkel:        «Generate outside the browser and import public certificate»"
   echo "        - Redirect URL:  ${APP_BASE_URL}/api/callback"
-  echo "        - Last opp den OFFENTLIGE nøkkelen (vises under)."
+  echo "        - Lim inn SERTIFIKATET som vises under."
   echo "     2) Kopier Application ID og legg den inn:"
   echo "        pct exec $CTID -- nano /opt/okonomi/.env   # sett ENABLEBANKING_APP_ID"
   echo "        pct exec $CTID -- systemctl restart okonomi"
   echo "     (full guide i ENABLEBANKING_SETUP.md)"
   echo
-  echo "  ---- OFFENTLIG NØKKEL (lim inn / last opp i Enable Banking) ----"
-  pct exec "$CTID" -- cat /opt/okonomi/data/enablebanking_public.pem
-  echo "  ---------------------------------------------------------------"
+  echo "  ---- SERTIFIKAT (lim inn i Enable Banking) ----"
+  pct exec "$CTID" -- cat /opt/okonomi/data/enablebanking_cert.pem
+  echo "  -----------------------------------------------"
   echo
   echo "  💡 Uten Enable Banking kan du uansett bruke CSV-import med en gang."
   echo

@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import aggregate, categorize, config, db, provider as gc, importer, sync
+from . import aggregate, categorize, config, db, demo, provider as gc, importer, labels, sync
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 log = logging.getLogger("okonomi")
@@ -42,9 +42,41 @@ async def _auto_sync_loop() -> None:
             log.warning("Auto-synk feilet: %s", e)
 
 
+def _migrate_categories() -> None:
+    """Engangsmigrering: del «Barn og forsikring»/«Barn og fritid» i Barn/Forsikring/Fritid."""
+    if db.get_setting("migr_cat_forsikring"):
+        return
+    remap = {"Barn og forsikring": "Barn", "Barn og fritid": "Fritid"}
+    budgets = db.get_setting("budgets", {}) or {}
+    nb = {remap.get(k, k): v for k, v in budgets.items()}
+    if nb != budgets:
+        db.set_setting("budgets", nb)
+    rules = db.get_setting("category_rules", []) or []
+    changed = False
+    for r in rules:
+        if r.get("category") in remap:
+            r["category"] = remap[r["category"]]
+            changed = True
+    if changed:
+        db.set_setting("category_rules", rules)
+    # Manuelt satte linjer omdøpes etter navn; ikke-manuelle re-kategoriseres av reglene.
+    for old, new in remap.items():
+        db.execute(
+            "UPDATE transactions SET category = ? WHERE category = ? AND category_source = 'manual'",
+            (new, old),
+        )
+    categorize.apply_rules_to_existing()
+    db.set_setting("migr_cat_forsikring", True)
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     db.init_db()
+    _migrate_categories()
+    # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
+    if db.get_setting("rules_version") != categorize.RULES_VERSION:
+        categorize.apply_rules_to_existing()
+        db.set_setting("rules_version", categorize.RULES_VERSION)
     if config.AUTO_SYNC:
         asyncio.create_task(_auto_sync_loop())
 
@@ -92,23 +124,42 @@ def status():
         "last_sync_at": db.get_setting("last_sync_at"),
         "country": config.COUNTRY,
         "app_base_url": config.APP_BASE_URL,
+        "demo": db.is_demo(),
     }
 
 
+@app.post("/api/demo")
+async def demo_toggle(request: Request):
+    """Bytt til/fra demo-tall. Ekte data røres ikke, og modus nullstilles ved omstart."""
+    body = await request.json()
+    on = bool(body.get("on"))
+    db.set_demo(on)
+    if on:
+        db.init_db()
+        demo.seed_if_empty()
+    return {"demo": db.is_demo()}
+
+
 @app.get("/api/dashboard")
-def dashboard(month: str | None = None):
-    return aggregate.build_dashboard(month)
+def dashboard(month: str | None = None, person: str | None = None):
+    return aggregate.build_dashboard(month, person)
 
 
 @app.get("/api/transactions")
 def transactions(month: str | None = None, person: str | None = None,
-                 category: str | None = None, q: str | None = None):
-    return aggregate.build_transactions(month, person, category, q)
+                 category: str | None = None, q: str | None = None,
+                 period: str | None = None, label: str | None = None):
+    return aggregate.build_transactions(month, person, category, q, period, label)
 
 
 @app.get("/api/budget")
 def budget(year: int | None = None):
     return aggregate.build_budget_matrix(year)
+
+
+@app.get("/api/analysis")
+def analysis(month: str | None = None, person: str | None = None, label: str | None = None):
+    return aggregate.build_analysis(month, person, label)
 
 
 @app.post("/api/import/csv")
@@ -212,6 +263,8 @@ def get_settings():
         "manual_assets": db.get_setting("manual_assets", []),
         "manual_liabilities": db.get_setting("manual_liabilities", []),
         "category_rules": db.get_setting("category_rules", []),
+        "label_rules": db.get_setting("label_rules", []),
+        "labels": labels.all_labels(),
         "categories": categorize.CATEGORY_ORDER,
         "accounts": [dict(r) for r in db.query("SELECT * FROM accounts ORDER BY sort_order, name")],
     }
@@ -221,9 +274,13 @@ def get_settings():
 async def save_settings(request: Request):
     body = await request.json()
     for key in ("household_name", "savings_goal_pct", "budgets",
-                "manual_assets", "manual_liabilities", "category_rules"):
+                "manual_assets", "manual_liabilities", "category_rules", "label_rules"):
         if key in body:
             db.set_setting(key, body[key])
+    if "category_rules" in body:
+        # Nye/endrede regler skal slå igjennom på eksisterende linjer også.
+        applied = categorize.apply_rules_to_existing()
+        return {"ok": True, "recategorized": applied}
     return {"ok": True}
 
 
@@ -239,24 +296,76 @@ async def update_account(account_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/accounts/{account_id}/refresh")
+def refresh_account(account_id: str):
+    """Hent kontonavn/IBAN/produkt fra banken igjen (letter identifisering)."""
+    try:
+        d = gc.get_account_details(account_id)
+    except gc.Error as e:
+        return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
+    updates = {"iban": d.get("iban", ""), "product": d.get("product", "")}
+    cur = db.query("SELECT name FROM accounts WHERE id = ?", (account_id,))
+    if cur and (not cur[0]["name"] or cur[0]["name"] in ("Konto", "")):
+        updates["name"] = d.get("name", "Konto")
+    sets = ", ".join(f"{k} = ?" for k in updates)
+    db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*updates.values(), account_id])
+    return {"ok": True, "bankName": d.get("name", ""), "iban": d.get("iban", ""), "product": d.get("product", "")}
+
+
 @app.post("/api/transactions/{tx_id}/category")
 async def set_category(tx_id: str, request: Request):
     body = await request.json()
     category = body.get("category")
     if not category:
         return JSONResponse({"error": "category mangler"}, status_code=400)
+    row = db.query("SELECT counterparty FROM transactions WHERE id = ?", (tx_id,))
     db.execute(
         "UPDATE transactions SET category = ?, category_source = 'manual' WHERE id = ?",
         (category, tx_id),
     )
-    return {"ok": True}
+    learned = 0
+    if body.get("learn", True) and row:
+        # Lær butikknavn -> kategori, og bruk det bare på liknende linjer (samme sted).
+        cp = row[0]["counterparty"]
+        categorize.learn_rule(cp, category)
+        learned = categorize.apply_pattern_to_existing(cp, category)
+    return {"ok": True, "learned": learned}
+
+
+@app.post("/api/transactions/{tx_id}/label")
+async def set_label(tx_id: str, request: Request):
+    body = await request.json()
+    lab = (body.get("label") or "").strip()
+    row = db.query("SELECT counterparty FROM transactions WHERE id = ?", (tx_id,))
+    if not lab or not row:
+        return JSONResponse({"error": "label eller transaksjon mangler"}, status_code=400)
+    # Å merke en transaksjon lager/fjerner en label-regel for samme sted.
+    if body.get("remove"):
+        labels.remove_label_rule(row[0]["counterparty"], lab)
+    else:
+        labels.learn_label_rule(row[0]["counterparty"], lab)
+    return {"ok": True, "labels": labels.labels_for(row[0]["counterparty"], "")}
 
 
 # --- frontend ---
 
 @app.get("/")
 def index():
-    return FileResponse(FRONTEND_DIR / "index.html")
+    # Injiser et versjonsmerke (basert på filenes endringstid) på app.js/styles.css
+    # slik at nettleser/Cloudflare henter ny versjon automatisk etter en oppdatering.
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    try:
+        v = int(max(
+            (FRONTEND_DIR / "app.js").stat().st_mtime,
+            (FRONTEND_DIR / "styles.css").stat().st_mtime,
+        ))
+    except OSError:
+        v = 1
+    html = (
+        html.replace("/static/app.js", f"/static/app.js?v={v}")
+        .replace("/static/styles.css", f"/static/styles.css?v={v}")
+    )
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 if FRONTEND_DIR.exists():

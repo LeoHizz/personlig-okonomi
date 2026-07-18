@@ -55,12 +55,14 @@ if [ ! -f data/enablebanking_private.pem ]; then
   echo "==> Genererer RSA-nøkkel for Enable Banking …"
   openssl genrsa -out data/enablebanking_private.pem 4096 2>/dev/null
   openssl rsa -in data/enablebanking_private.pem -pubout -out data/enablebanking_public.pem 2>/dev/null
+  openssl req -new -x509 -days 3650 -key data/enablebanking_private.pem -out data/enablebanking_cert.pem -subj "/CN=personlig-okonomi" 2>/dev/null
   chmod 600 data/enablebanking_private.pem
-  echo "  >>> Registrer app på https://enablebanking.com/cp, last opp denne offentlige nøkkelen,"
-  echo "      og legg Application ID i .env (ENABLEBANKING_APP_ID). Se ENABLEBANKING_SETUP.md."
-  echo "  ---- data/enablebanking_public.pem ----"
-  cat data/enablebanking_public.pem
-  echo "  ---------------------------------------"
+  echo "  >>> Registrer app på https://enablebanking.com/cp (Environment: Production,"
+  echo "      nøkkel: «Generate outside the browser and import public certificate»),"
+  echo "      lim inn sertifikatet under, og legg Application ID i .env. Se ENABLEBANKING_SETUP.md."
+  echo "  ---- data/enablebanking_cert.pem ----"
+  cat data/enablebanking_cert.pem
+  echo "  -------------------------------------"
 fi
 
 # 3) Bygg og start

@@ -7,7 +7,9 @@ const state = {
   status: null,
   data: null,
   sel: null,
-  tx: { person: "Alle", category: null, query: "" },
+  person: "Alle",
+  tx: { person: "Alle", category: null, query: "", period: "month", label: "Alle" },
+  label: "Alle",
   budgetYear: null,
   budgetData: null,
 };
@@ -45,19 +47,46 @@ function toast(msg) {
 
 /* ---------- init ---------- */
 
+function currentYm() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+function addMonth(ym, delta) {
+  let [y, m] = ym.split("-").map(Number);
+  m += delta;
+  while (m < 1) { m += 12; y--; }
+  while (m > 12) { m -= 12; y++; }
+  return y + "-" + String(m).padStart(2, "0");
+}
+function prevYm() { return addMonth(currentYm(), -1); }
+
+function dashMonth(delta) {
+  const ny = addMonth(state.month || currentYm(), delta);
+  if (ny > currentYm()) return; // ikke inn i framtiden
+  state.month = ny;
+  state.sel = null;
+  loadDashboard();
+}
+
 async function init() {
   try {
     state.status = await api.get("/api/status");
   } catch (e) {
     state.status = { needs_setup: true, configured: false };
   }
+  // Standard: vis forrige (avsluttede) måned – "pr. månedsskiftet".
+  if (!state.month) state.month = prevYm();
   await loadDashboard();
   handleConnectReturn();
 }
 
 async function loadDashboard() {
   try {
-    state.data = await api.get("/api/dashboard" + (state.month ? `?month=${state.month}` : ""));
+    const params = new URLSearchParams();
+    if (state.month) params.set("month", state.month);
+    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    const qs = params.toString();
+    state.data = await api.get("/api/dashboard" + (qs ? "?" + qs : ""));
     state.month = state.data.month;
     if (!state.sel && state.data.categories.length) state.sel = state.data.categories[0].name;
   } catch (e) {
@@ -80,6 +109,7 @@ function handleConnectReturn() {
 function render() {
   if (state.view === "tx") return renderTransactions();
   if (state.view === "budget") return renderBudget();
+  if (state.view === "analyse") return renderAnalysis();
   renderDashboard();
 }
 
@@ -114,7 +144,9 @@ function renderDashboard() {
   const k = d.kpis;
   $app.innerHTML = `<div class="wrap">
     ${header()}
+    ${demoBanner()}
     ${banner}
+    ${personFilter(d)}
     <div class="kpi-grid">
       ${kpi("Netto formue", k.netWorth, k.netWorthNote)}
       ${kpi("Inn", k.income, "denne måneden")}
@@ -130,6 +162,7 @@ function renderDashboard() {
     <div class="main-grid">
       ${categoryCard(d)}
       <div class="right-col">
+        ${liquidityCard(d)}
         ${cashflowCard(d)}
         <div class="two">
           ${accountsCard(d)}
@@ -141,15 +174,61 @@ function renderDashboard() {
   </div>`;
 }
 
+function demoBanner() {
+  if (!(state.status && state.status.demo)) return "";
+  return `<div class="banner" style="background:#fff4d6;border-color:#e6c766;margin-bottom:12px">
+    <span>🎭 <b>DEMO-MODUS</b> – viser falske tall. Ekte data er trygt lagret og kommer tilbake når du skrur av (eller ved omstart).</span>
+    <button class="btn-dark" onclick="toggleDemo(false)">Skru av demo</button>
+  </div>`;
+}
+
+async function toggleDemo(on) {
+  try {
+    await api.post("/api/demo", { on });
+    state.status = await api.get("/api/status");
+    state.month = prevYm();
+    state.sel = null; state.person = "Alle"; state.label = "Alle"; state.view = "dash";
+    closeModal();
+    toast(on ? "Demo-modus på 🎭 – falske tall" : "Demo-modus av – ekte data tilbake");
+    await loadDashboard();
+  } catch (e) {
+    toast("Kunne ikke bytte modus");
+  }
+}
+
+function personFilter(d) {
+  const persons = d.persons || ["Alle"];
+  if (persons.length <= 1) return "";  // ingen eiere satt på kontoene enda
+  const chips = persons
+    .map(
+      (p) => `<button class="person-chip ${p === state.person ? "active" : ""}" onclick="setDashPerson('${esc(p)}')">${esc(p)}</button>`
+    )
+    .join("");
+  return `<div class="chips" style="margin:2px 0 14px">${chips}</div>`;
+}
+
+function setDashPerson(p) {
+  state.person = p;
+  state.sel = null;
+  if (state.view === "analyse") renderAnalysis();
+  else loadDashboard();
+}
+
 function header() {
   const d = state.data || {};
+  const atCurrent = (state.month || currentYm()) >= currentYm();
   return `<div class="head">
     <div class="head-title">
       <h1>${esc(d.household || "Personlig økonomi")}</h1>
-      <div class="head-sub">${esc(d.monthLabel || "")}</div>
+      <div class="head-sub month-nav">
+        <button class="mnav" onclick="dashMonth(-1)" title="Forrige måned">‹</button>
+        <span>${esc(d.monthLabel || "")}</span>
+        <button class="mnav" onclick="dashMonth(1)" title="Neste måned" ${atCurrent ? "disabled" : ""}>›</button>
+      </div>
     </div>
     <div class="head-actions">
       <button class="chip-btn" onclick="syncNow()" id="syncBtn">↻ Synk</button>
+      <button class="chip-btn" onclick="goAnalyse()">Analyse</button>
       <button class="chip-btn" onclick="goBudget()">Budsjett</button>
       <button class="chip-btn" onclick="openSettings()">⚙︎ Innstillinger</button>
       <button class="btn-dark" onclick="goTx()">Transaksjoner →</button>
@@ -222,6 +301,34 @@ function categoryCard(d) {
   </div>`;
 }
 
+function liquidityCard(d) {
+  const L = d.liquidity;
+  if (!L) return "";
+  const range = Math.max(1, L.max - L.min);
+  const bars = L.points
+    .map((p) => {
+      const h = Math.max(6, Math.round(15 + ((p.value - L.min) / range) * 85));
+      const color = p.current ? "var(--navy)" : "#7fa0bd";
+      return `<div style="height:${h}%;background:${color};opacity:${p.current ? "1" : "0.75"}" title="${esc(p.label)}: ${p.value}"></div>`;
+    })
+    .join("");
+  const labels = L.points
+    .map((p) => `<div ${p.current ? 'style="font-weight:700;color:var(--navy)"' : ""}>${esc(p.label)}</div>`)
+    .join("");
+  const chColor = L.up ? "var(--green)" : "var(--amber)";
+  return `<div class="card">
+    <div class="cf-head">
+      <div>
+        <div class="card-title">Likviditet — disponibelt nå</div>
+        <div class="liq-now">${L.currentFmt} kr</div>
+      </div>
+      <div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>
+    </div>
+    <div class="cf-bars" style="gap:6px">${bars}</div>
+    <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
+  </div>`;
+}
+
 function cashflowCard(d) {
   const cf = d.cashflow;
   const maxAbs = Math.max(1, ...cf.map((c) => Math.abs(c.net)));
@@ -267,19 +374,20 @@ function loansCard(d) {
       <div class="loan-sub" style="margin-top:12px">Ingen lån registrert.<br><span class="sel-link" onclick="openSettings('lan')">Legg til lån →</span></div>
     </div>`;
   }
-  const l = d.loans[0];
+  const items = d.loans
+    .map(
+      (l) => `<div style="margin-top:12px">
+      <div class="loan-name"><span>${esc(l.name)} <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span>${l.estimated ? ` <span class="acc-tag" style="background:#fff3d6;color:#8a6d1a">estimert</span>` : ""}</span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
+      <div class="bar" style="margin-top:10px"><div style="width:${l.paidPct}%;background:var(--navy)"></div></div>
+      <div class="loan-sub">${l.paidPct} % nedbetalt${l.estimated && l.monthlyPayment ? " · " + numFmt(l.monthlyPayment) + "/mnd" : ""}${l.note ? " · " + esc(l.note) : ""}</div>
+    </div>`
+    )
+    .join("");
+  const anyEstimated = d.loans.some((l) => l.estimated);
   return `<div class="card">
     <div class="card-title">Lån</div>
-    <div style="margin-top:12px">
-      <div class="loan-name"><span>${esc(l.name)} <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span></span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
-      <div class="bar" style="margin-top:10px"><div style="width:${l.paidPct}%;background:var(--navy)"></div></div>
-      <div class="loan-sub">${l.paidPct} % nedbetalt${l.note ? " · " + esc(l.note) : ""}</div>
-    </div>
-    ${l.paidThisMonth != null ? `<div class="loan-break">
-      <div class="loan-line"><span>Betalt i ${monthShort(d.monthLabel)}</span><span style="font-weight:600">${numFmt(l.paidThisMonth)}</span></div>
-      ${l.interest != null ? `<div class="loan-line muted"><span>— herav renter</span><span>${numFmt(l.interest)}</span></div>` : ""}
-      ${l.principal != null ? `<div class="loan-line muted"><span>— herav avdrag</span><span>${numFmt(l.principal)}</span></div>` : ""}
-    </div>` : ""}
+    ${items}
+    ${anyEstimated ? `<div class="loan-sub" style="margin-top:12px;font-size:11px;color:#9aa0aa">Estimert restgjeld beregnes fra startsaldo og avdrag – oppdater med et ferskt tall fra nettbanken ved behov.</div>` : ""}
   </div>`;
 }
 
@@ -315,9 +423,11 @@ async function renderTransactions() {
     if (state.tx.person && state.tx.person !== "Alle") params.set("person", state.tx.person);
     if (state.tx.category) params.set("category", state.tx.category);
     if (state.tx.query) params.set("q", state.tx.query);
+    if (state.tx.period) params.set("period", state.tx.period);
+    if (state.tx.label && state.tx.label !== "Alle") params.set("label", state.tx.label);
     res = await api.get("/api/transactions?" + params.toString());
   } catch (e) {
-    res = { rows: [], count: 0, persons: ["Alle"] };
+    res = { rows: [], count: 0, persons: ["Alle"], allLabels: [] };
   }
 
   const chips = res.persons
@@ -326,12 +436,35 @@ async function renderTransactions() {
     )
     .join("");
 
+  const periodChips = [["month", "Denne mnd"], ["3m", "3 mnd"], ["12m", "12 mnd"], ["all", "Alt"]]
+    .map(([v, l]) => `<button class="person-chip ${state.tx.period === v ? "active" : ""}" onclick="setTxPeriod('${v}')">${esc(l)}</button>`)
+    .join("");
+
+  const allLabels = res.allLabels || [];
+  const labelFilter = allLabels.length
+    ? ["Alle", ...allLabels]
+        .map((l) => `<button class="person-chip ${(state.tx.label || "Alle") === l ? "active" : ""}" onclick="setTxLabel('${esc(l)}')">${l === "Alle" ? "Alle" : "🏷 " + esc(l)}</button>`)
+        .join("")
+    : "";
+
+  const allCats = res.categories || [];
+  const catSelect = (t) => {
+    const cats = allCats.includes(t.cat) ? allCats : [t.cat, ...allCats];
+    const opts = cats.map((c) => `<option ${c === t.cat ? "selected" : ""}>${esc(c)}</option>`).join("");
+    return `<select class="tx-cat" onchange="changeTxCategory('${esc(t.id)}', this.value)"
+      style="font-size:12px;border:1px solid var(--line);border-radius:6px;padding:2px 4px;background:#fff;max-width:100%">${opts}</select>`;
+  };
+  const descCell = (t) => {
+    const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${esc(t.id)}','${esc(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
+    const opts = allLabels.map((l) => `<option>${esc(l)}</option>`).join("");
+    return `<span>${esc(t.desc)}<span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
+  };
   const rows = res.rows
     .map(
       (t) => `<div class="tx-grid tx-tr">
         <span class="muted">${esc(t.date)}</span>
-        <span>${esc(t.desc)}</span>
-        <span class="muted">${esc(t.cat)}</span>
+        ${descCell(t)}
+        ${catSelect(t)}
         <span class="muted">${esc(t.acct)}</span>
         <span class="muted">${esc(t.person)}</span>
         <span class="tx-amt" style="color:${t.positive ? "var(--green)" : "var(--ink)"}">${esc(t.amtFmt)}</span>
@@ -344,14 +477,16 @@ async function renderTransactions() {
       <div class="tx-head-left">
         <button class="chip-btn" onclick="goDash()">← Oversikt</button>
         <div class="tx-title">Transaksjoner</div>
-        <div class="tx-count">${esc(res.monthLabel || "")} · ${res.count} stk</div>
+        <div class="tx-count">${esc(res.periodLabel || res.monthLabel || "")} · ${res.count} stk</div>
       </div>
       <input class="tx-search" placeholder="Søk i beskrivelse eller kategori…" value="${esc(state.tx.query)}" oninput="onQuery(this.value)">
     </div>
+    <div class="chips">${periodChips}</div>
     <div class="chips">
       ${chips}
       ${state.tx.category ? `<button class="cat-filter" onclick="clearCatFilter()">${esc(state.tx.category)} ✕</button>` : ""}
     </div>
+    ${labelFilter ? `<div class="chips">${labelFilter}</div>` : ""}
     <div class="tx-table">
       <div class="tx-grid tx-th"><span>Dato</span><span>Beskrivelse</span><span>Kategori</span><span>Konto</span><span>Hvem</span><span style="text-align:right">Beløp</span></div>
       ${rows || '<div class="tx-empty">Ingen treff — prøv et annet søk eller filter.</div>'}
@@ -480,6 +615,153 @@ async function saveBudget() {
 
 function goBudget() { state.view = "budget"; render(); }
 
+/* ---------- analyse / innsikt view ---------- */
+
+function goAnalyse() { state.view = "analyse"; renderAnalysis(); }
+function setAnalyseLabel(l) { state.label = l; renderAnalysis(); }
+
+async function renderAnalysis() {
+  let a;
+  try {
+    const params = new URLSearchParams();
+    if (state.month) params.set("month", state.month);
+    if (state.person && state.person !== "Alle") params.set("person", state.person);
+    if (state.label && state.label !== "Alle") params.set("label", state.label);
+    a = await api.get("/api/analysis?" + params.toString());
+  } catch (e) {
+    $app.innerHTML = `<div class="wrap"><button class="chip-btn" onclick="goDash()">← Oversikt</button>
+      <div class="card" style="margin-top:16px">Kunne ikke laste analyse.</div></div>`;
+    return;
+  }
+
+  const chips = (a.persons || ["Alle"]).length > 1
+    ? `<div class="chips" style="margin:2px 0 14px">${a.persons
+        .map((p) => `<button class="person-chip ${p === state.person ? "active" : ""}" onclick="setDashPerson('${esc(p)}')">${esc(p)}</button>`)
+        .join("")}</div>`
+    : "";
+
+  const labelChips = (a.allLabels || []).length
+    ? `<div class="chips" style="margin:2px 0 14px">${["Alle", ...a.allLabels]
+        .map((l) => `<button class="person-chip ${(a.label || "Alle") === l ? "active" : ""}" onclick="setAnalyseLabel('${esc(l)}')">${l === "Alle" ? "Alle merkelapper" : "🏷 " + esc(l)}</button>`)
+        .join("")}</div>`
+    : "";
+
+  const labelCard = (a.labelBreakdown || []).length
+    ? `<div class="card" style="margin-top:12px">
+        <div class="card-title">Kostnad per merkelapp — ${esc(a.monthLabel)}</div>
+        <div style="margin-top:10px">${a.labelBreakdown
+          .map((b) => `<div class="sel-item"><span>🏷 ${esc(b.label)}</span><b>${b.amountFmt}</b></div>`)
+          .join("")}</div>
+      </div>`
+    : "";
+
+  const insights = a.insights.length
+    ? `<div class="ai"><div class="ai-icon">✻</div><div>
+        <div class="ai-title">Innsikt for ${esc(a.monthLabel)}</div>
+        <div class="ai-text">${a.insights.map((s) => esc(s)).join("<br>")}</div></div></div>`
+    : "";
+
+  const cmpRows = a.comparison
+    .map((c) => {
+      const col = c.delta === 0 ? "var(--muted)" : c.up ? "var(--amber)" : "var(--green)";
+      const arrow = c.delta === 0 ? "" : c.up ? "▲" : "▼";
+      return `<div class="an-row">
+        <span class="an-cat"><span class="cat-dot" style="background:${c.color}"></span>${esc(c.name)}</span>
+        <span class="an-now"><b>${c.currentFmt}</b></span>
+        <span class="an-prev muted">${c.prevFmt}</span>
+        <span class="an-delta" style="color:${col}">${arrow} ${c.deltaFmt} <span class="muted">(${c.deltaPct >= 0 ? "+" : ""}${c.deltaPct}%)</span></span>
+      </div>`;
+    })
+    .join("");
+
+  const merchRows = a.topMerchants
+    .map((m) => `<div class="sel-item"><span>${esc(m.name)} <span class="muted">${m.count} kjøp · ${esc(m.category)}</span></span><b>${m.amountFmt}</b></div>`)
+    .join("") || '<div class="muted" style="font-size:12.5px">Ingen kjøp denne måneden.</div>';
+
+  const bigRows = a.biggest
+    .map((b) => `<div class="sel-item"><span>${esc(b.date)} ${esc(b.desc)} <span class="muted">${esc(b.category)}</span></span><b>${b.amountFmt}</b></div>`)
+    .join("") || '<div class="muted" style="font-size:12.5px">—</div>';
+
+  const recRows = a.recurring
+    .map((r) => `<div class="sel-item"><span>${esc(r.name)} <span class="acc-tag">${r.months} mnd</span> <span class="muted">${esc(r.category)}</span></span><b>${r.avgFmt}/mnd</b></div>`)
+    .join("") || '<div class="muted" style="font-size:12.5px">Ingen faste kjøp funnet enda (trenger noen måneders historikk).</div>';
+
+  const paceRows = a.budgetPace
+    .map((p) => {
+      const col = p.over ? "var(--amber-bright)" : "var(--green)";
+      return `<div style="margin-bottom:13px">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px">
+          <span><span class="cat-dot" style="background:${p.color}"></span> ${esc(p.name)}</span>
+          <span>${p.spentFmt} / ${p.budgetFmt} <b style="color:${col}">${p.pctUsed}%</b></span>
+        </div>
+        <div class="pace-track"><div class="pace-fill" style="width:${Math.min(100, p.pctUsed)}%;background:${col}"></div><div class="pace-marker" style="left:${a.elapsedPct}%"></div></div>
+        <div class="muted" style="font-size:11px;margin-top:3px">Prognose måned: ${p.projectedFmt} kr${p.over ? " · over tempo ⚠" : ""}</div>
+      </div>`;
+    })
+    .join("");
+  const paceCard = a.budgetPace.length
+    ? `<div class="card" style="margin-top:12px">
+        <div class="cf-head"><div class="card-title">Budsjett-tempo</div><div class="cf-sub">${a.elapsedPct} % av måneden er gått</div></div>
+        <div style="margin-top:14px">${paceRows}</div>
+        <div class="muted" style="font-size:11px">Grå strek = hvor langt i måneden du er. Er søylen forbi streken, bruker du raskere enn budsjettet.</div>
+      </div>`
+    : "";
+
+  const trendRows = a.trends
+    .map((tr) => {
+      const mx = Math.max(1, tr.max);
+      const spark = tr.values
+        .map((v, i) => `<div style="height:${Math.max(3, Math.round((v / mx) * 100))}%;background:${tr.color};opacity:${i === tr.values.length - 1 ? "1" : "0.5"}" title="${esc(a.trendMonths[i])}: ${v}"></div>`)
+        .join("");
+      return `<div class="trend-row">
+        <span class="an-cat" style="width:120px;flex:none"><span class="cat-dot" style="background:${tr.color}"></span>${esc(tr.name)}</span>
+        <div class="trend-spark">${spark}</div>
+        <span style="width:78px;text-align:right"><b>${tr.lastFmt}</b><div class="muted" style="font-size:10px">sum ${tr.totalFmt}</div></span>
+      </div>`;
+    })
+    .join("");
+  const trendCard = a.trends.length
+    ? `<div class="card" style="margin-top:12px">
+        <div class="cf-head"><div class="card-title">Kategoritrend — siste 12 mnd</div><div class="cf-sub">${esc(a.trendMonths[0])}–${esc(a.trendMonths[a.trendMonths.length - 1])}</div></div>
+        <div style="margin-top:12px">${trendRows}</div>
+      </div>`
+    : "";
+
+  const t = a.totals;
+  $app.innerHTML = `<div class="wrap">
+    <div class="tx-head">
+      <div class="tx-head-left">
+        <button class="chip-btn" onclick="goDash()">← Oversikt</button>
+        <div class="tx-title">Analyse</div>
+        <div class="tx-count">${esc(a.monthLabel)} vs ${esc(a.prevMonthLabel)}</div>
+      </div>
+    </div>
+    ${chips}
+    ${labelChips}
+    ${insights}
+    <div class="kpi-grid" style="margin-top:14px">
+      ${kpi("Forbruk", t.expenseNow, `forrige: ${t.expensePrev}`)}
+      ${kpi("Inntekt", t.incomeNow, `forrige: ${t.incomePrev}`)}
+      ${kpi("Spart", t.savedNow, `forrige: ${t.savedPrev}`, true)}
+    </div>
+    ${labelCard}
+    ${paceCard}
+    <div class="an-grid">
+      <div class="card">
+        <div class="card-title">Denne måneden vs forrige</div>
+        <div class="an-head"><span>Kategori</span><span>Denne</span><span>Forrige</span><span>Endring</span></div>
+        ${cmpRows || '<div class="muted" style="font-size:12.5px">Ingen forbruk registrert.</div>'}
+      </div>
+      <div class="right-col">
+        <div class="card"><div class="card-title">Toppbutikker denne måneden</div><div style="margin-top:10px">${merchRows}</div></div>
+        <div class="card"><div class="card-title">Største enkeltkjøp</div><div style="margin-top:10px">${bigRows}</div></div>
+        <div class="card"><div class="card-title">Gjentakende kjøp (faste utgifter)</div><div style="margin-top:10px">${recRows}</div></div>
+      </div>
+    </div>
+    ${trendCard}
+  </div>`;
+}
+
 /* ---------- CSV import modal ---------- */
 
 function openImport() {
@@ -537,11 +819,45 @@ function onQuery(v) {
   queryTimer = setTimeout(renderTransactions, 220);
 }
 function setPerson(p) { state.tx.person = p; renderTransactions(); }
+function setTxPeriod(p) { state.tx.period = p; renderTransactions(); }
+function setTxLabel(l) { state.tx.label = l; renderTransactions(); }
+
+async function addTxLabel(id, label) {
+  if (!label) return;
+  try {
+    await api.post(`/api/transactions/${id}/label`, { label });
+    toast("Merket «" + label + "» ✓ (lærer for samme sted)");
+    renderTransactions();
+  } catch (e) {
+    toast("Kunne ikke merke");
+  }
+}
+
+async function removeTxLabel(id, label) {
+  try {
+    await api.post(`/api/transactions/${id}/label`, { label, remove: true });
+    toast("Fjernet «" + label + "»");
+    renderTransactions();
+  } catch (e) {
+    toast("Kunne ikke fjerne");
+  }
+}
 function clearCatFilter() { state.tx.category = null; renderTransactions(); }
 function selectCat(name) { state.sel = name; renderDashboard(); }
 function goTx() { state.view = "tx"; state.tx.category = null; render(); }
 function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.query = ""; state.tx.person = "Alle"; render(); }
-function goDash() { state.view = "dash"; render(); }
+function goDash() { state.view = "dash"; loadDashboard(); }
+
+async function changeTxCategory(id, cat) {
+  try {
+    const res = await api.post(`/api/transactions/${id}/category`, { category: cat });
+    const extra = res && res.learned ? ` · lært for ${res.learned} liknende` : "";
+    toast("Kategori endret ✓" + extra);
+    renderTransactions();
+  } catch (e) {
+    toast("Kunne ikke endre kategori");
+  }
+}
 
 async function syncNow() {
   const btn = document.getElementById("syncBtn");
@@ -604,14 +920,21 @@ async function openSettings(tab) {
 
 function renderSettings(tab) {
   const s = settingsCache;
-  const tabs = ["generelt", "budsjett", "kontoer", "eiendeler", "lan"];
-  const labels = { generelt: "Generelt", budsjett: "Budsjett", kontoer: "Kontoer", eiendeler: "Eiendeler", lan: "Lån" };
+  const tabs = ["generelt", "budsjett", "kontoer", "regler", "merkelapper", "eiendeler", "lan"];
+  const labels = { generelt: "Generelt", budsjett: "Budsjett", kontoer: "Kontoer", regler: "Regler", merkelapper: "Merkelapper", eiendeler: "Eiendeler", lan: "Lån" };
   const tabBar = tabs.map((t) => `<div class="tab ${t === tab ? "active" : ""}" onclick="renderSettings('${t}')">${labels[t]}</div>`).join("");
 
   let body = "";
   if (tab === "generelt") {
+    const demoOn = state.status && state.status.demo;
     body = `<div class="field"><label>Navn på oversikten</label><input id="set_household" value="${esc(s.household_name)}"></div>
-      <div class="field"><label>Sparemål (%)</label><input id="set_goal" type="number" value="${esc(s.savings_goal_pct)}"></div>`;
+      <div class="field"><label>Sparemål (%)</label><input id="set_goal" type="number" value="${esc(s.savings_goal_pct)}"></div>
+      <div class="field"><label>Demo-modus</label>
+        <div>${demoOn
+          ? `<button class="btn-dark" onclick="toggleDemo(false)">🎭 Skru AV demo (tilbake til ekte tall)</button>`
+          : `<button class="chip-btn" onclick="toggleDemo(true)">🎭 Skru PÅ demo (falske tall for visning)</button>`}</div>
+        <div class="sub" style="margin-top:6px">Bytter midlertidig til falske tall for å vise appen fram. Ekte data røres ikke, og kommer tilbake når du skrur av (eller ved omstart).</div>
+      </div>`;
   } else if (tab === "budsjett") {
     body = s.categories
       .map(
@@ -622,18 +945,35 @@ function renderSettings(tab) {
     body = s.accounts.length
       ? s.accounts
           .map(
-            (a) => `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
-        <div style="font-size:12.5px;font-weight:600;margin-bottom:8px">${esc(a.name)} <span class="acc-tag">${esc(a.institution_id || "")}</span></div>
+            (a) => {
+            const ibanMask = a.iban ? "••" + esc(String(a.iban).slice(-4)) : "";
+            const isCsv = (a.institution_id || "") === "csv-import";
+            const tag = [esc(a.institution_name || a.institution_id || ""), ibanMask, esc(a.product || "")].filter(Boolean).join(" · ");
+            return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span></div>
+          ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent navn/IBAN fra banken">↻ Hent fra bank</button>`}
+        </div>
         <div class="grid3">
           <div class="field" style="margin:0"><label>Visningsnavn</label><input class="acc-in" data-id="${esc(a.id)}" data-f="name" value="${esc(a.name)}"></div>
           <div class="field" style="margin:0"><label>Kort etikett</label><input class="acc-in" data-id="${esc(a.id)}" data-f="bank_code" value="${esc(a.bank_code || "")}"></div>
           <div class="field" style="margin:0"><label>Eier / hvem</label><input class="acc-in" data-id="${esc(a.id)}" data-f="owner" value="${esc(a.owner || "")}"></div>
         </div>
-        <label style="font-size:12px;color:#4a505a;margin-top:8px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-hidden" data-id="${esc(a.id)}" ${a.hidden ? "checked" : ""}> skjul fra dashboard</label>
-      </div>`
+        <label style="font-size:12px;color:#4a505a;margin-top:8px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-hidden" data-id="${esc(a.id)}" ${a.hidden ? "checked" : ""}> Deaktiver – utelat fra alle oversikter og transaksjoner</label>
+      </div>`;
+          }
           )
           .join("")
       : '<div style="color:#9aa0aa;font-size:13px">Ingen kontoer koblet til enda.</div>';
+  } else if (tab === "regler") {
+    body = `<div class="sub" style="margin-bottom:10px">Regler gjenkjennes automatisk framover. «Mønster» matcher tekst i transaksjonen (delstreng, uten hensyn til store/små bokstaver). Endrer du en kategori i transaksjonslista, lages en regel her automatisk.</div>
+      <div id="ruleRows">${(s.category_rules || []).map((r) => ruleRow(r)).join("")}</div>
+      <button class="small-add" onclick="addRule()">+ Legg til regel</button>`;
+  } else if (tab === "merkelapper") {
+    body = `<div class="sub" style="margin-bottom:10px">Merkelapper er en dimensjon på tvers av kategorier (f.eks. Hytte, Ferie). «Mønster» matcher tekst i transaksjonen. Du kan også merke en transaksjon direkte i transaksjonslista – da lages en regel her.</div>
+      <datalist id="labelSuggestions">${(s.labels || []).map((l) => `<option value="${esc(l)}">`).join("")}</datalist>
+      <div id="labelRuleRows">${(s.label_rules || []).map((r) => labelRuleRow(r)).join("")}</div>
+      <button class="small-add" onclick="addLabelRule()">+ Legg til merkelapp-regel</button>`;
   } else if (tab === "eiendeler") {
     body = `<div id="assetRows">${(s.manual_assets || []).map(assetRow).join("")}</div>
       <button class="small-add" onclick="addAsset()">+ Legg til eiendel (bolig, fond, bil …)</button>`;
@@ -650,7 +990,7 @@ function renderSettings(tab) {
       <div class="tabs">${tabBar}</div>
       <div>${body}</div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-        ${state.status && !state.status.needs_setup ? "" : `<button class="btn-green" style="margin-right:auto" onclick="openConnect()">Koble til bank</button>`}
+        <button class="btn-green" style="margin-right:auto" onclick="openConnect()">+ Koble til bank</button>
         <button class="chip-btn" onclick="closeModal()">Avbryt</button>
         <button class="btn-dark" onclick="saveSettings('${tab}')">Lagre</button>
       </div>
@@ -669,16 +1009,51 @@ function loanRow(l = {}) {
   return `<div class="loan-row" style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
     <div class="grid3">
       <div class="field" style="margin:0"><label>Navn</label><input data-f="name" value="${esc(l.name || "")}"></div>
-      <div class="field" style="margin:0"><label>Saldo (kr)</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Opprinnelig (kr)</label><input data-f="original" type="number" value="${esc(l.original ?? "")}"></div>
+      <div class="field" style="margin:0"><label>Etikett</label><input data-f="tag" value="${esc(l.tag || "")}"></div>
+      <div class="field" style="margin:0"><label>Rente (%)</label><input data-f="rate" value="${esc(l.rate ?? "")}"></div>
+    </div>
+    <label style="font-size:12px;color:#4a505a;margin-top:10px;display:inline-flex;gap:6px;align-items:center">
+      <input type="checkbox" data-f="auto" ${l.auto ? "checked" : ""}> Auto-nedbetaling (regner ut estimert restgjeld hver måned)
+    </label>
+    <div class="grid3" style="margin-top:8px">
+      <div class="field" style="margin:0"><label>Startsaldo (kr)</label><input data-f="start_balance" type="number" value="${esc(l.start_balance ?? "")}"></div>
+      <div class="field" style="margin:0"><label>Månedlig avdrag (kr)</label><input data-f="monthly_payment" type="number" value="${esc(l.monthly_payment ?? "")}"></div>
+      <div class="field" style="margin:0"><label>Startmåned</label><input data-f="start_date" type="month" value="${esc(l.start_date || "")}"></div>
     </div>
     <div class="grid3" style="margin-top:8px">
-      <div class="field" style="margin:0"><label>Rente (%)</label><input data-f="rate" value="${esc(l.rate ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Etikett</label><input data-f="tag" value="${esc(l.tag || "")}"></div>
+      <div class="field" style="margin:0"><label>Saldo i dag (kr) – uten auto</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
+      <div class="field" style="margin:0"><label>Opprinnelig (kr)</label><input data-f="original" type="number" value="${esc(l.original ?? "")}"></div>
       <div class="field" style="margin:0"><label>Notat</label><input data-f="note" value="${esc(l.note || "")}"></div>
     </div>
     <button class="row-del" onclick="this.closest('.loan-row').remove()">Fjern</button>
   </div>`;
+}
+function ruleRow(r = {}) {
+  const cats = (settingsCache.categories || []).concat(["Inntekt", "Overføring"]);
+  const opts = cats.map((c) => `<option ${c === r.category ? "selected" : ""}>${esc(c)}</option>`).join("");
+  return `<div class="rule-row" style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+    <div class="field" style="margin:0;flex:1"><label>Mønster (butikknavn/tekst)</label><input data-f="pattern" value="${esc(r.pattern || "")}"></div>
+    <div class="field" style="margin:0;width:150px"><label>Kategori</label><select data-f="category">${opts}</select></div>
+    <button class="row-del" onclick="this.closest('.rule-row').remove()" title="Fjern">✕</button>
+  </div>`;
+}
+function addRule() { document.getElementById("ruleRows").insertAdjacentHTML("beforeend", ruleRow()); }
+function labelRuleRow(r = {}) {
+  return `<div class="label-rule-row" style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+    <div class="field" style="margin:0;flex:1"><label>Mønster (butikknavn/tekst)</label><input data-f="pattern" value="${esc(r.pattern || "")}"></div>
+    <div class="field" style="margin:0;width:150px"><label>Merkelapp</label><input data-f="label" list="labelSuggestions" value="${esc(r.label || "")}"></div>
+    <button class="row-del" onclick="this.closest('.label-rule-row').remove()" title="Fjern">✕</button>
+  </div>`;
+}
+function addLabelRule() { document.getElementById("labelRuleRows").insertAdjacentHTML("beforeend", labelRuleRow()); }
+async function refreshAccount(id) {
+  try {
+    const r = await api.post(`/api/accounts/${id}/refresh`, {});
+    toast("Hentet fra bank: " + (r.bankName || r.iban || "oppdatert"));
+    openSettings("kontoer");
+  } catch (e) {
+    toast("Kunne ikke hente fra bank");
+  }
 }
 function addAsset() { document.getElementById("assetRows").insertAdjacentHTML("beforeend", assetRow()); }
 function addLoan() { document.getElementById("loanRows").insertAdjacentHTML("beforeend", loanRow()); }
@@ -699,6 +1074,14 @@ async function saveSettings(tab) {
     payload.manual_assets = [...document.querySelectorAll(".asset-row")]
       .map((r) => rowObj(r))
       .filter((o) => o.name && o.value);
+  } else if (tab === "regler") {
+    payload.category_rules = [...document.querySelectorAll(".rule-row")]
+      .map((r) => rowObj(r))
+      .filter((o) => (o.pattern || "").trim());
+  } else if (tab === "merkelapper") {
+    payload.label_rules = [...document.querySelectorAll(".label-rule-row")]
+      .map((r) => rowObj(r))
+      .filter((o) => (o.pattern || "").trim() && (o.label || "").trim());
   } else if (tab === "lan") {
     payload.manual_liabilities = [...document.querySelectorAll(".loan-row")]
       .map((r) => rowObj(r))
@@ -732,7 +1115,8 @@ function rowObj(row) {
   const o = {};
   row.querySelectorAll("[data-f]").forEach((i) => {
     const f = i.dataset.f;
-    o[f] = i.type === "number" ? Number(i.value) || 0 : i.value;
+    if (i.type === "checkbox") o[f] = i.checked;
+    else o[f] = i.type === "number" ? Number(i.value) || 0 : i.value;
   });
   return o;
 }
@@ -751,9 +1135,10 @@ function monthShort(label) {
 // eksponer funksjoner brukt i inline onclick
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
-  addAsset, addLoan, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
-  setPerson, clearCatFilter, onQuery,
-  goBudget, changeYear, suggestBudget, saveBudget, openImport, doImport,
+  addAsset, addLoan, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
+  setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
+  goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
+  dashMonth, toggleDemo, refreshAccount,
 });
 
 init();

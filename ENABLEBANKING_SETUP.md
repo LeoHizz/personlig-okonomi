@@ -7,34 +7,37 @@ GoCardless stengte nye registreringer (juli 2025).
 Autentisering skjer med et **RSA-nøkkelpar**: appen signerer forespørsler med en
 privat nøkkel, og du registrerer den offentlige nøkkelen hos Enable Banking.
 
-## 1. Nøkkelen er allerede laget
+## 1. Nøkkel og sertifikat er allerede laget
 
-Kjørte du `proxmox-lxc-install.sh`, er nøkkelparet allerede generert inne i
-containeren:
-- Privat: `/opt/okonomi/data/enablebanking_private.pem` (blir værende – del den aldri)
-- Offentlig: `/opt/okonomi/data/enablebanking_public.pem` (denne laster du opp)
+Kjørte du `proxmox-lxc-install.sh`, er dette allerede generert inne i containeren:
+- Privat nøkkel: `/opt/okonomi/data/enablebanking_private.pem` (blir værende – del den aldri)
+- Sertifikat: `/opt/okonomi/data/enablebanking_cert.pem` (dette laster du opp til Enable Banking)
 
-Skriptet skrev også ut den offentlige nøkkelen på slutten. Trenger du den igjen:
+Skriptet skrev også ut sertifikatet på slutten. Trenger du det igjen:
 ```bash
-pct exec <CTID> -- cat /opt/okonomi/data/enablebanking_public.pem
+pct exec <CTID> -- cat /opt/okonomi/data/enablebanking_cert.pem
 ```
 
-> Kjører du Docker/manuelt i stedet, lag nøkkelen selv:
+> Mangler sertifikatet (eldre installasjon), lag det fra den private nøkkelen:
 > ```bash
-> openssl genrsa -out data/enablebanking_private.pem 4096
-> openssl rsa -in data/enablebanking_private.pem -pubout -out data/enablebanking_public.pem
+> pct exec <CTID> -- openssl req -new -x509 -days 3650 \
+>   -key /opt/okonomi/data/enablebanking_private.pem \
+>   -out /opt/okonomi/data/enablebanking_cert.pem -subj "/CN=personlig-okonomi"
 > ```
+> (Docker/manuelt: samme kommando, men uten `pct exec <CTID> --` og med sti `data/...`.)
 
 ## 2. Opprett app hos Enable Banking
 
 1. Gå til **https://enablebanking.com/cp** og opprett en (gratis) konto.
-2. Opprett en ny **applikasjon**:
-   - **Environment**: Production (for ekte bankkontoer)
-   - **Redirect URL**: `http://DIN-SERVER-IP:8080/api/callback`
-     (samme som `APP_BASE_URL` i `.env` + `/api/callback`)
-   - **Public key**: lim inn / last opp innholdet i `enablebanking_public.pem`
-3. Godta vilkårene for personlig bruk.
-4. Kopier **Application ID** som appen får.
+2. **Add a new application**:
+   - **Environment**: **Production** (Sandbox = kun falske testbanker)
+   - **Nøkkel**: velg **«Generate outside the browser and import public certificate»**
+     og lim inn innholdet i `enablebanking_cert.pem` (hele `BEGIN/END CERTIFICATE`-blokken)
+   - **Application name**: valgfritt, f.eks. `Personlig okonomi`
+   - **Allowed redirect URLs**: `https://DITT-DOMENE/api/callback`
+     (nøyaktig lik `APP_BASE_URL` i `.env` + `/api/callback`)
+3. Godta vilkårene for personlig bruk (følg ev. verifisering for Production).
+4. Trykk **Register** og kopier **Application ID**.
 
 ## 3. Legg inn Application ID
 
