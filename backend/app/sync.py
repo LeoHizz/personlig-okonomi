@@ -110,20 +110,24 @@ def register_accounts(query: dict) -> list[str]:
         )
 
     ids = []
+    all_accts = db.query("SELECT id, name, owner, bank_code, iban, bban, hidden FROM accounts")
     for acc in res.get("accounts", []):
         acc_id = acc["id"]
         iban = acc.get("iban", "")
+        bban = acc.get("bban", "")
+        acctno = db.account_number(iban, bban)
         ids.append(acc_id)
         # Enable Banking gir nye konto-ID-er ved re-tilkobling. Arv navn/eier/etikett
-        # fra en tidligere konto med samme kontonummer (IBAN), så mappingen bevares.
-        existing = db.query("SELECT name, owner, bank_code FROM accounts WHERE id = ?", (acc_id,))
-        prior = []
-        if not existing and iban:
-            prior = db.query(
-                "SELECT name, owner, bank_code FROM accounts WHERE iban = ? ORDER BY hidden ASC LIMIT 1",
-                (iban,),
+        # fra en tidligere konto med samme kontonummer (IBAN el. BBAN), mapping bevares.
+        existing = next((r for r in all_accts if r["id"] == acc_id), None)
+        prior = None
+        if not existing and acctno:
+            prior = next(
+                (r for r in sorted(all_accts, key=lambda x: x["hidden"])
+                 if db.account_number(r["iban"], r["bban"]) == acctno),
+                None,
             )
-        src = existing[0] if existing else (prior[0] if prior else None)
+        src = existing or prior
         keep_name = src["name"] if src else acc.get("name", "Konto")
         keep_owner = src["owner"] if src else "Felles"
         keep_code = src["bank_code"] if src else code
@@ -136,6 +140,7 @@ def register_accounts(query: dict) -> list[str]:
                 "institution_name": inst_name,
                 "bank_code": keep_code,
                 "iban": iban,
+                "bban": bban,
                 "name": keep_name,
                 "owner": keep_owner,
                 "currency": acc.get("currency", "NOK"),
@@ -146,8 +151,10 @@ def register_accounts(query: dict) -> list[str]:
             },
         )
         # Skjul eldre duplikater med samme kontonummer (unngår at lista vokser).
-        if iban:
-            db.execute("UPDATE accounts SET hidden = 1 WHERE iban = ? AND id != ?", (iban, acc_id))
+        if acctno:
+            for r in all_accts:
+                if r["id"] != acc_id and db.account_number(r["iban"], r["bban"]) == acctno:
+                    db.execute("UPDATE accounts SET hidden = 1 WHERE id = ?", (r["id"],))
     return ids
 
 

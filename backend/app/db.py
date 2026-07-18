@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, Iterable
 
 from . import config
+
+
+def account_number(iban: str | None, bban: str | None = None) -> str:
+    """Normalisert kontonummer (kun sifre) fra IBAN eller BBAN – for matching/dedupe."""
+    s = (iban or "").upper().replace(" ", "")
+    if s.startswith("NO") and len(s) >= 15:
+        return re.sub(r"\D", "", s[4:])
+    return re.sub(r"\D", "", bban or "")
 
 _local = threading.local()
 
@@ -78,6 +87,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     institution_name TEXT,
     bank_code        TEXT,           -- kort etikett, f.eks. SPV / DNB / COOP
     iban             TEXT,
+    bban             TEXT,           -- internt kontonummer (når IBAN mangler)
     name             TEXT,           -- visningsnavn
     owner            TEXT,           -- hvem: Felles / Anna / Martin ...
     currency         TEXT,

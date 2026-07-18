@@ -37,14 +37,14 @@ const api = {
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// IBAN -> norsk kontonummer (utledet). Ellers maskert siste 4.
-function norAccount(iban) {
+// Norsk kontonummer fra IBAN eller BBAN (11 sifre -> XXXX.XX.XXXXX).
+function norAccount(iban, bban) {
   const s = String(iban || "").toUpperCase().replace(/\s/g, "");
-  if (s.startsWith("NO") && s.length >= 15) {
-    const b = s.slice(4);
-    return b.slice(0, 4) + "." + b.slice(4, 6) + "." + b.slice(6);
-  }
-  return iban ? "••" + String(iban).slice(-4) : "";
+  let d = "";
+  if (s.startsWith("NO") && s.length >= 15) d = s.slice(4).replace(/\D/g, "");
+  else if (bban) d = String(bban).replace(/\D/g, "");
+  if (d.length === 11) return d.slice(0, 4) + "." + d.slice(4, 6) + "." + d.slice(6);
+  return d || "";
 }
 
 // Trygg verdi for bruk som streng-argument inne i onclick="fn('…')"
@@ -984,9 +984,10 @@ function renderSettings(tab) {
       )
       .join("");
   } else if (tab === "kontoer") {
-    const ibanCounts = {};
-    s.accounts.forEach((a) => { if (a.iban) ibanCounts[a.iban] = (ibanCounts[a.iban] || 0) + 1; });
-    const anyDup = Object.values(ibanCounts).some((n) => n > 1);
+    const acctKey = (a) => norAccount(a.iban, a.bban).replace(/\./g, "");
+    const acctCounts = {};
+    s.accounts.forEach((a) => { const k = acctKey(a); if (k) acctCounts[k] = (acctCounts[k] || 0) + 1; });
+    const anyDup = Object.values(acctCounts).some((n) => n > 1);
     const toolbar = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <button class="chip-btn" onclick="refreshAllAccounts()">↻ Hent alle fra bank</button>
       ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Fjern duplikater (slett)</button>` : ""}
@@ -995,9 +996,9 @@ function renderSettings(tab) {
       ? s.accounts
           .map(
             (a) => {
-            const acctNo = norAccount(a.iban);
+            const acctNo = norAccount(a.iban, a.bban);
             const isCsv = (a.institution_id || "") === "csv-import";
-            const isDup = a.iban && ibanCounts[a.iban] > 1;
+            const isDup = acctKey(a) && acctCounts[acctKey(a)] > 1;
             const tag = [esc(a.institution_name || a.institution_id || ""), esc(acctNo)].filter(Boolean).join(" · ");
             return `<div style="border:1px solid ${isDup ? "#e6c766" : "var(--line)"};border-radius:10px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">

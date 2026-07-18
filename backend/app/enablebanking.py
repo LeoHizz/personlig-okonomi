@@ -153,9 +153,18 @@ def _account_details(uid: str) -> dict:
 
 def _normalize_account(uid: str, details: dict) -> dict:
     acc_id = details.get("account_id", {}) or {}
+    iban = acc_id.get("iban", "") if isinstance(acc_id, dict) else ""
+    bban = ""
+    if isinstance(acc_id, dict):
+        other = acc_id.get("other")
+        if isinstance(other, dict):
+            bban = other.get("identification", "") or ""
+        elif isinstance(other, list) and other:
+            bban = (other[0] or {}).get("identification", "") or ""
     return {
         "id": uid,
-        "iban": acc_id.get("iban", "") if isinstance(acc_id, dict) else "",
+        "iban": iban,
+        "bban": bban,
         "name": details.get("name") or details.get("product") or "Konto",
         "currency": details.get("currency", "NOK"),
         "product": details.get("product", ""),

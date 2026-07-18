@@ -70,9 +70,16 @@ def _migrate_categories() -> None:
     db.set_setting("migr_cat_forsikring", True)
 
 
+def _ensure_column(table: str, col: str, decl: str) -> None:
+    cols = [r["name"] for r in db.query(f"PRAGMA table_info({table})")]
+    if col not in cols:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     db.init_db()
+    _ensure_column("accounts", "bban", "TEXT")
     _migrate_categories()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
@@ -319,7 +326,7 @@ def refresh_account(account_id: str):
         d = gc.get_account_details(account_id)
     except gc.Error as e:
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
-    updates = {"iban": d.get("iban", ""), "product": d.get("product", "")}
+    updates = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
     cur = db.query("SELECT name FROM accounts WHERE id = ?", (account_id,))
     if cur and (not cur[0]["name"] or cur[0]["name"] in ("Konto", "")):
         updates["name"] = d.get("name", "Konto")
@@ -338,7 +345,7 @@ def refresh_all_accounts():
     for r in rows:
         try:
             d = gc.get_account_details(r["id"])
-            fields = {"iban": d.get("iban", ""), "product": d.get("product", "")}
+            fields = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
             if not r["name"] or r["name"] in ("Konto", ""):
                 fields["name"] = d.get("name", "Konto")
             sets = ", ".join(f"{k} = ?" for k in fields)
@@ -351,13 +358,16 @@ def refresh_all_accounts():
 
 @app.post("/api/accounts-dedupe")
 def dedupe_accounts():
-    """SLETT duplikat-kontoer (samme kontonummer/IBAN) permanent – behold den beste
-    (har saldo, deretter flest transaksjoner). Gyldige kontoer (unikt kontonummer)
-    røres aldri; dem skjuler du med «Deaktiver». Vurderer også skjulte kopier."""
-    rows = db.query("SELECT id, iban FROM accounts WHERE iban IS NOT NULL AND iban != ''")
+    """Slå sammen kontoer med samme kontonummer (IBAN eller BBAN): flytt
+    transaksjonene til den beste kopien (har saldo, deretter flest transaksjoner),
+    fjern dobbeltførte rader, og SLETT dublett-kontoene. Gyldige kontoer med eget
+    kontonummer røres aldri; dem skjuler du med «Deaktiver»."""
+    rows = db.query("SELECT id, iban, bban FROM accounts WHERE institution_id NOT IN ('csv-import','demo')")
     groups: dict[str, list] = defaultdict(list)
     for r in rows:
-        groups[r["iban"]].append(r["id"])
+        no = db.account_number(r["iban"], r["bban"])
+        if no:
+            groups[no].append(r["id"])
 
     def score(aid: str):
         has_bal = 1 if db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (aid,)) else 0
@@ -365,18 +375,26 @@ def dedupe_accounts():
         return (has_bal, n)
 
     deleted = 0
-    for iban, ids in groups.items():
+    for no, ids in groups.items():
         if len(ids) < 2:
             continue
         keep = max(ids, key=score)
-        db.execute("UPDATE accounts SET hidden = 0 WHERE id = ?", (keep,))  # behold den beste aktiv
         for aid in ids:
             if aid == keep:
                 continue
-            db.execute("DELETE FROM transactions WHERE account_id = ?", (aid,))
+            # flytt transaksjonene til den vi beholder
+            db.execute("UPDATE transactions SET account_id = ? WHERE account_id = ?", (keep, aid))
             db.execute("DELETE FROM balances WHERE account_id = ?", (aid,))
             db.execute("DELETE FROM accounts WHERE id = ?", (aid,))
             deleted += 1
+        # fjern dobbeltførte transaksjoner på den beholdte kontoen
+        db.execute(
+            "DELETE FROM transactions WHERE account_id = ? AND rowid NOT IN ("
+            "  SELECT MIN(rowid) FROM transactions WHERE account_id = ? "
+            "  GROUP BY booking_date, amount, counterparty, remittance)",
+            (keep, keep),
+        )
+        db.execute("UPDATE accounts SET hidden = 0 WHERE id = ?", (keep,))
     return {"deleted": deleted}
 
 
