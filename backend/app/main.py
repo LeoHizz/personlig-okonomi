@@ -6,6 +6,7 @@ import base64
 import logging
 import secrets
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -315,6 +316,51 @@ def refresh_account(account_id: str):
     sets = ", ".join(f"{k} = ?" for k in updates)
     db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*updates.values(), account_id])
     return {"ok": True, "bankName": d.get("name", ""), "iban": d.get("iban", ""), "product": d.get("product", "")}
+
+
+@app.post("/api/accounts/refresh-all")
+def refresh_all_accounts():
+    """Hent navn/IBAN/produkt for alle tilkoblede kontoer (slipper å klikke hver)."""
+    rows = db.query(
+        "SELECT id, name FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
+    )
+    updated, errors = 0, 0
+    for r in rows:
+        try:
+            d = gc.get_account_details(r["id"])
+            fields = {"iban": d.get("iban", ""), "product": d.get("product", "")}
+            if not r["name"] or r["name"] in ("Konto", ""):
+                fields["name"] = d.get("name", "Konto")
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), r["id"]])
+            updated += 1
+        except Exception:  # noqa: BLE001
+            errors += 1
+    return {"updated": updated, "errors": errors}
+
+
+@app.post("/api/accounts/dedupe")
+def dedupe_accounts():
+    """Finn kontoer med samme kontonummer (IBAN) og deaktiver dublettene –
+    beholder den med flest transaksjoner aktiv. Fjerner også dobbelttelling."""
+    rows = db.query("SELECT id, iban FROM accounts WHERE iban IS NOT NULL AND iban != '' AND hidden = 0")
+    groups: dict[str, list] = defaultdict(list)
+    for r in rows:
+        groups[r["iban"]].append(r["id"])
+    hidden = 0
+    for iban, ids in groups.items():
+        if len(ids) < 2:
+            continue
+        counts = {
+            aid: db.query("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?", (aid,))[0]["n"]
+            for aid in ids
+        }
+        keep = max(counts, key=counts.get)
+        for aid in ids:
+            if aid != keep:
+                db.execute("UPDATE accounts SET hidden = 1 WHERE id = ?", (aid,))
+                hidden += 1
+    return {"hidden": hidden}
 
 
 @app.post("/api/transactions/{tx_id}/category")

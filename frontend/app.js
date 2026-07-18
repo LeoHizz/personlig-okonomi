@@ -37,6 +37,16 @@ const api = {
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// IBAN -> norsk kontonummer (utledet). Ellers maskert siste 4.
+function norAccount(iban) {
+  const s = String(iban || "").toUpperCase().replace(/\s/g, "");
+  if (s.startsWith("NO") && s.length >= 15) {
+    const b = s.slice(4);
+    return b.slice(0, 4) + "." + b.slice(4, 6) + "." + b.slice(6);
+  }
+  return iban ? "••" + String(iban).slice(-4) : "";
+}
+
 // Trygg verdi for bruk som streng-argument inne i onclick="fn('…')"
 const jsq = (s) =>
   String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -974,16 +984,24 @@ function renderSettings(tab) {
       )
       .join("");
   } else if (tab === "kontoer") {
-    body = s.accounts.length
+    const ibanCounts = {};
+    s.accounts.forEach((a) => { if (a.iban) ibanCounts[a.iban] = (ibanCounts[a.iban] || 0) + 1; });
+    const anyDup = Object.values(ibanCounts).some((n) => n > 1);
+    const toolbar = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="chip-btn" onclick="refreshAllAccounts()">↻ Hent alle fra bank</button>
+      ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Rydd duplikater</button>` : ""}
+    </div>`;
+    body = toolbar + (s.accounts.length
       ? s.accounts
           .map(
             (a) => {
-            const ibanMask = a.iban ? "••" + esc(String(a.iban).slice(-4)) : "";
+            const acctNo = norAccount(a.iban);
             const isCsv = (a.institution_id || "") === "csv-import";
-            const tag = [esc(a.institution_name || a.institution_id || ""), ibanMask, esc(a.product || "")].filter(Boolean).join(" · ");
-            return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
+            const isDup = a.iban && ibanCounts[a.iban] > 1;
+            const tag = [esc(a.institution_name || a.institution_id || ""), esc(acctNo)].filter(Boolean).join(" · ");
+            return `<div style="border:1px solid ${isDup ? "#e6c766" : "var(--line)"};border-radius:10px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span></div>
+          <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
           ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent navn/IBAN fra banken">↻ Hent fra bank</button>`}
         </div>
         <div class="grid3">
@@ -996,7 +1014,7 @@ function renderSettings(tab) {
           }
           )
           .join("")
-      : '<div style="color:#9aa0aa;font-size:13px">Ingen kontoer koblet til enda.</div>';
+      : '<div style="color:#9aa0aa;font-size:13px">Ingen kontoer koblet til enda.</div>');
   } else if (tab === "regler") {
     body = `<div class="sub" style="margin-bottom:10px">Regler gjenkjennes automatisk framover. «Mønster» matcher tekst i transaksjonen (delstreng, uten hensyn til store/små bokstaver). Endrer du en kategori i transaksjonslista, lages en regel her automatisk.</div>
       <div id="ruleRows">${(s.category_rules || []).map((r) => ruleRow(r)).join("")}</div>
@@ -1087,6 +1105,26 @@ async function refreshAccount(id) {
     toast("Kunne ikke hente fra bank");
   }
 }
+async function refreshAllAccounts() {
+  toast("Henter alle kontoer fra bank …");
+  try {
+    const r = await api.post("/api/accounts/refresh-all", {});
+    toast(`Oppdatert ${r.updated} konto(er)${r.errors ? ` (${r.errors} feilet)` : ""}`);
+    openSettings("kontoer");
+  } catch (e) {
+    toast("Kunne ikke hente fra bank");
+  }
+}
+async function dedupeAccounts() {
+  try {
+    const r = await api.post("/api/accounts/dedupe", {});
+    toast(r.hidden ? `Deaktiverte ${r.hidden} duplikat(er)` : "Ingen duplikater funnet");
+    await loadDashboard();
+    openSettings("kontoer");
+  } catch (e) {
+    toast("Kunne ikke rydde duplikater");
+  }
+}
 function addAsset() { document.getElementById("assetRows").insertAdjacentHTML("beforeend", assetRow()); }
 function addLoan() { document.getElementById("loanRows").insertAdjacentHTML("beforeend", loanRow()); }
 
@@ -1170,7 +1208,7 @@ Object.assign(window, {
   addAsset, addLoan, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
-  dashMonth, toggleDemo, refreshAccount, openMerchant,
+  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, openMerchant,
 });
 
 init();
