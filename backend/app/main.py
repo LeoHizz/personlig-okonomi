@@ -351,9 +351,9 @@ def refresh_all_accounts():
 
 @app.post("/api/accounts-dedupe")
 def dedupe_accounts():
-    """Finn kontoer med samme kontonummer (IBAN) og behold den beste (har saldo,
-    så flest transaksjoner) aktiv – deaktiver resten. Vurderer også skjulte, så
-    den kan gjenopprette hvis feil kopi ble beholdt tidligere."""
+    """SLETT duplikat-kontoer (samme kontonummer/IBAN) permanent – behold den beste
+    (har saldo, deretter flest transaksjoner). Gyldige kontoer (unikt kontonummer)
+    røres aldri; dem skjuler du med «Deaktiver». Vurderer også skjulte kopier."""
     rows = db.query("SELECT id, iban FROM accounts WHERE iban IS NOT NULL AND iban != ''")
     groups: dict[str, list] = defaultdict(list)
     for r in rows:
@@ -364,18 +364,20 @@ def dedupe_accounts():
         n = db.query("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?", (aid,))[0]["n"]
         return (has_bal, n)
 
-    changed = 0
+    deleted = 0
     for iban, ids in groups.items():
         if len(ids) < 2:
             continue
         keep = max(ids, key=score)
+        db.execute("UPDATE accounts SET hidden = 0 WHERE id = ?", (keep,))  # behold den beste aktiv
         for aid in ids:
-            want = 0 if aid == keep else 1
-            cur = db.query("SELECT hidden FROM accounts WHERE id = ?", (aid,))[0]["hidden"]
-            if cur != want:
-                db.execute("UPDATE accounts SET hidden = ? WHERE id = ?", (want, aid))
-                changed += 1
-    return {"hidden": changed}
+            if aid == keep:
+                continue
+            db.execute("DELETE FROM transactions WHERE account_id = ?", (aid,))
+            db.execute("DELETE FROM balances WHERE account_id = ?", (aid,))
+            db.execute("DELETE FROM accounts WHERE id = ?", (aid,))
+            deleted += 1
+    return {"deleted": deleted}
 
 
 @app.post("/api/transactions/{tx_id}/category")

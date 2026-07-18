@@ -989,7 +989,7 @@ function renderSettings(tab) {
     const anyDup = Object.values(ibanCounts).some((n) => n > 1);
     const toolbar = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <button class="chip-btn" onclick="refreshAllAccounts()">↻ Hent alle fra bank</button>
-      ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Rydd duplikater</button>` : ""}
+      ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Fjern duplikater (slett)</button>` : ""}
     </div>`;
     body = toolbar + (s.accounts.length
       ? s.accounts
@@ -1119,13 +1119,14 @@ async function refreshAllAccounts() {
   }
 }
 async function dedupeAccounts() {
+  if (!confirm("Slette duplikat-kontoer permanent?\n\nDen beste kopien (med saldo) beholdes. Gyldige kontoer med eget kontonummer røres ikke.")) return;
   try {
     const r = await api.post("/api/accounts-dedupe", {});
-    toast(r.hidden ? `Deaktiverte ${r.hidden} duplikat(er)` : "Ingen duplikater funnet");
+    toast(r.deleted ? `Slettet ${r.deleted} duplikat(er)` : "Ingen duplikater funnet");
     await loadDashboard();
     openSettings("kontoer");
   } catch (e) {
-    toast("Kunne ikke rydde duplikater");
+    toast("Kunne ikke fjerne duplikater");
   }
 }
 function addAsset() { document.getElementById("assetRows").insertAdjacentHTML("beforeend", assetRow()); }
