@@ -318,7 +318,7 @@ def refresh_account(account_id: str):
     return {"ok": True, "bankName": d.get("name", ""), "iban": d.get("iban", ""), "product": d.get("product", "")}
 
 
-@app.post("/api/accounts/refresh-all")
+@app.post("/api/accounts-refresh-all")
 def refresh_all_accounts():
     """Hent navn/IBAN/produkt for alle tilkoblede kontoer (slipper å klikke hver)."""
     rows = db.query(
@@ -339,7 +339,7 @@ def refresh_all_accounts():
     return {"updated": updated, "errors": errors}
 
 
-@app.post("/api/accounts/dedupe")
+@app.post("/api/accounts-dedupe")
 def dedupe_accounts():
     """Finn kontoer med samme kontonummer (IBAN) og deaktiver dublettene –
     beholder den med flest transaksjoner aktiv. Fjerner også dobbelttelling."""

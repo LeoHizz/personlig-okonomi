@@ -1108,7 +1108,7 @@ async function refreshAccount(id) {
 async function refreshAllAccounts() {
   toast("Henter alle kontoer fra bank …");
   try {
-    const r = await api.post("/api/accounts/refresh-all", {});
+    const r = await api.post("/api/accounts-refresh-all", {});
     toast(`Oppdatert ${r.updated} konto(er)${r.errors ? ` (${r.errors} feilet)` : ""}`);
     openSettings("kontoer");
   } catch (e) {
@@ -1117,7 +1117,7 @@ async function refreshAllAccounts() {
 }
 async function dedupeAccounts() {
   try {
-    const r = await api.post("/api/accounts/dedupe", {});
+    const r = await api.post("/api/accounts-dedupe", {});
     toast(r.hidden ? `Deaktiverte ${r.hidden} duplikat(er)` : "Ingen duplikater funnet");
     await loadDashboard();
     openSettings("kontoer");
