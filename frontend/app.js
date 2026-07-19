@@ -1018,8 +1018,11 @@ function renderSettings(tab) {
           <div class="field" style="margin:0"><label>Kort etikett</label><input class="acc-in" data-id="${esc(a.id)}" data-f="bank_code" value="${esc(a.bank_code || "")}"></div>
           <div class="field" style="margin:0"><label>Eier / hvem</label><input class="acc-in" data-id="${esc(a.id)}" data-f="owner" value="${esc(a.owner || "")}"></div>
         </div>
-        ${isCsv ? `<div class="field" style="margin:8px 0 0"><label>Disponibelt beløp (manuelt – f.eks. fra Coop-nettbanken)</label><input class="acc-in" data-id="${esc(a.id)}" data-f="manual_balance" type="number" inputmode="decimal" placeholder="f.eks. 24000" value="${a.manualBalance != null ? esc(a.manualBalance) : ""}"></div>` : ""}
-        <label style="font-size:12px;color:#4a505a;margin-top:8px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-hidden" data-id="${esc(a.id)}" ${a.hidden ? "checked" : ""}> Deaktiver – utelat fra alle oversikter og transaksjoner</label>
+        ${isCsv ? `<div class="field" style="margin:8px 0 0"><label>${a.is_credit ? "Utestående beløp" : "Disponibelt beløp"} (manuelt – f.eks. fra ${esc(a.name || "nettbanken")})</label><input class="acc-in" data-id="${esc(a.id)}" data-f="manual_balance" type="number" inputmode="decimal" placeholder="f.eks. 24000" value="${a.manualBalance != null ? esc(a.manualBalance) : ""}"></div>` : ""}
+        <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">
+          <label style="font-size:12px;color:#4a505a;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-credit" data-id="${esc(a.id)}" ${a.is_credit ? "checked" : ""}> Kredittkort – vis utestående (ikke disponibelt)</label>
+          <label style="font-size:12px;color:#4a505a;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-hidden" data-id="${esc(a.id)}" ${a.hidden ? "checked" : ""}> Deaktiver – utelat fra alle oversikter og transaksjoner</label>
+        </div>
       </div>`;
           }
           )
@@ -1203,6 +1206,10 @@ async function saveSettings(tab) {
     document.querySelectorAll(".acc-hidden").forEach((c) => {
       byId[c.dataset.id] = byId[c.dataset.id] || {};
       byId[c.dataset.id].hidden = c.checked ? 1 : 0;
+    });
+    document.querySelectorAll(".acc-credit").forEach((c) => {
+      byId[c.dataset.id] = byId[c.dataset.id] || {};
+      byId[c.dataset.id].is_credit = c.checked ? 1 : 0;
     });
     for (const [id, fields] of Object.entries(byId)) {
       await api.post(`/api/accounts/${id}`, fields);

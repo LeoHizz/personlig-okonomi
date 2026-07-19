@@ -81,6 +81,7 @@ async def _startup() -> None:
     db.init_db()
     _ensure_column("accounts", "bban", "TEXT")
     _ensure_column("accounts", "provider_ref", "TEXT")
+    _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
     _migrate_categories()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
@@ -335,7 +336,7 @@ async def update_account(account_id: str, request: Request):
             except ValueError:
                 pass
 
-    allowed = {"name", "owner", "bank_code", "is_asset", "hidden", "sort_order"}
+    allowed = {"name", "owner", "bank_code", "is_asset", "is_credit", "hidden", "sort_order"}
     fields = {k: v for k, v in body.items() if k in allowed}
     if fields:
         sets = ", ".join(f"{k} = ?" for k in fields)
