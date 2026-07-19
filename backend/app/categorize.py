@@ -7,7 +7,7 @@ from __future__ import annotations
 
 # Kategori -> farge (samme palett som designet)
 CATEGORY_COLORS: dict[str, str] = {
-    "Bolig og lån": "#16324a",
+    "Boliglån og husleie": "#16324a",
     "Kommunale avgifter": "#3d6b7a",
     "Dagligvarer": "#2f7a5e",
     "Barn": "#4a6a86",
@@ -32,10 +32,10 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 5
+RULES_VERSION = 6
 
 CATEGORY_ORDER = [
-    "Bolig og lån",
+    "Boliglån og husleie",
     "Kommunale avgifter",
     "Dagligvarer",
     "Barn",
@@ -56,7 +56,7 @@ CATEGORY_ORDER = [
 ]
 
 # Kategorier som regnes som "faste utgifter"
-FIXED_CATEGORIES = {"Bolig og lån", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
+FIXED_CATEGORIES = {"Boliglån og husleie", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
 
 # Nøkkelord -> kategori. Matches som delstreng, ufølsom for store/små bokstaver.
 # Rekkefølgen betyr noe: første treff vinner.
@@ -194,13 +194,13 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("xxl", "Fritid"),
     ("g-sport", "Fritid"),
     ("gsport", "Fritid"),
-    # Bolig og lån
-    ("boliglån", "Bolig og lån"),
-    ("terminbeløp", "Bolig og lån"),
-    ("husleie", "Bolig og lån"),
-    ("obos", "Bolig og lån"),
-    ("borettslag", "Bolig og lån"),
-    ("avdrag", "Bolig og lån"),
+    # Boliglån og husleie
+    ("boliglån", "Boliglån og husleie"),
+    ("terminbeløp", "Boliglån og husleie"),
+    ("husleie", "Boliglån og husleie"),
+    ("obos", "Boliglån og husleie"),
+    ("borettslag", "Boliglån og husleie"),
+    ("avdrag", "Boliglån og husleie"),
     # Kommunale avgifter
     ("kommunale avgifter", "Kommunale avgifter"),
     ("kommunale gebyr", "Kommunale avgifter"),

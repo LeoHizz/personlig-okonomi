@@ -70,6 +70,24 @@ def _migrate_categories() -> None:
     db.set_setting("migr_cat_forsikring", True)
 
 
+def _rename_category(old: str, new: str) -> None:
+    """Ren omdøping av en kategori – flytter ALLE transaksjoner (auto + manuelle),
+    budsjett-nøkkel og brukerregler fra gammelt til nytt navn. Idempotent."""
+    db.execute("UPDATE transactions SET category = ? WHERE category = ?", (new, old))
+    budgets = db.get_setting("budgets", {}) or {}
+    if old in budgets:
+        budgets[new] = budgets.pop(old)
+        db.set_setting("budgets", budgets)
+    rules = db.get_setting("category_rules", []) or []
+    changed = False
+    for r in rules:
+        if r.get("category") == old:
+            r["category"] = new
+            changed = True
+    if changed:
+        db.set_setting("category_rules", rules)
+
+
 def _ensure_column(table: str, col: str, decl: str) -> None:
     cols = [r["name"] for r in db.query(f"PRAGMA table_info({table})")]
     if col not in cols:
@@ -84,6 +102,7 @@ async def _startup() -> None:
     _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
     _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
     _migrate_categories()
+    _rename_category("Bolig og lån", "Boliglån og husleie")
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
