@@ -127,6 +127,15 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_tx_date    ON transactions(booking_date);
+
+-- Daglige øyeblikksbilder av netto likviditet (kan ikke rekonstrueres ærlig
+-- bakover, så vi lagrer faktiske målinger framover og bygger grafen fra dem).
+CREATE TABLE IF NOT EXISTS liquidity_snapshots (
+    date TEXT PRIMARY KEY,   -- YYYY-MM-DD
+    cash REAL,
+    debt REAL,
+    net  REAL
+);
 """
 
 

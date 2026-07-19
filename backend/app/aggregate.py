@@ -124,22 +124,35 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
-def _level_series(month: str, current_value: float, ids: list[str]) -> list[tuple[str, float]]:
-    """Rekonstruer saldonivå 12 mnd bakover: dagens verdi − månedlige nettobevegelser."""
-    net_by_month: dict[str, float] = {}
-    if ids:
-        ph = ",".join("?" for _ in ids)
-        for r in db.query(
-            f"SELECT substr(booking_date,1,7) AS m, SUM(amount) AS net FROM transactions "
-            f"WHERE account_id IN ({ph}) AND booking_date IS NOT NULL GROUP BY m", ids):
-            net_by_month[r["m"]] = r["net"] or 0.0
-    bal = float(current_value)
-    vals: list[tuple[str, float]] = []
-    for m in reversed(_prev_months(month, 12)):
-        vals.append((m, bal))
-        bal -= net_by_month.get(m, 0.0)
-    vals.reverse()
-    return vals
+def _record_liquidity_snapshot(cash: float, debt: float, net: float) -> None:
+    """Lagre dagens netto likviditet (ett øyeblikksbilde per dato, siste vinner)."""
+    today = date.today().isoformat()
+    db.execute(
+        "INSERT INTO liquidity_snapshots(date, cash, debt, net) VALUES(?,?,?,?) "
+        "ON CONFLICT(date) DO UPDATE SET cash=excluded.cash, debt=excluded.debt, net=excluded.net",
+        (today, round(cash, 2), round(debt, 2), round(net, 2)),
+    )
+
+
+def _liquidity_history(month: str) -> list[dict]:
+    """12 mnd med faktiske øyeblikksbilder (siste måling i hver måned)."""
+    snaps: dict[str, dict] = {}
+    for r in db.query("SELECT date, cash, debt, net FROM liquidity_snapshots ORDER BY date"):
+        ym = (r["date"] or "")[:7]
+        if ym:
+            snaps[ym] = r  # ORDER BY date -> siste i måneden vinner
+    points = []
+    for m in _prev_months(month, 12):
+        s = snaps.get(m)
+        points.append({
+            "month": m, "label": _month_label(m).split()[0][:3],
+            "cash": round(s["cash"]) if s else 0,
+            "debt": round(s["debt"]) if s else 0,
+            "net": round(s["net"]) if s else 0,
+            "current": m == month,
+            "has": s is not None,
+        })
+    return points
 
 
 def build_dashboard(month: str | None = None, persons=None) -> dict:
@@ -291,30 +304,28 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         )
 
     # --- netto likviditet + utvikling ---
-    # Netto likviditet = disponibelt på konto − utestående kredittkortgjeld. Slik
-    # reflekterer grafen hva du faktisk har å rutte med: kjøp på kort trekker den
-    # ned (låneopptak synes), nedbetaling er nøytralt (flytter penger). Utviklingen
-    # rekonstrueres bakover fra dagens netto + transaksjonene på konto OG kort.
-    liquid_ids = [a["id"] for a in acc_rows if a["is_asset"] and not a["is_credit"]]
+    # Netto likviditet = disponibelt på konto − utestående kredittkortgjeld (eksakt nå).
+    # Historikk kan IKKE rekonstrueres ærlig bakover fra transaksjoner (mange kontoer,
+    # overføringer, kortbetalinger, delvis historikk gir tull). Vi lagrer i stedet et
+    # daglig øyeblikksbilde og bygger grafen fra FAKTISKE målinger framover.
     current_liquid = liquid_sum + credit_debt
-    # Kontantsiden rekonstrueres pålitelig fra banktransaksjonene (banksaldo er et
-    # løpende regnskap). Kortgjeld kan IKKE rekonstrueres ærlig – kredittkort (særlig
-    # Coop-CSV) mangler et rent løpende saldo-spor (nedbetalinger fanges ikke), så
-    # den holdes konstant på dagens nivå bakover. Grønt = reell utvikling av egne
-    # midler; rødt = dagens kortgjeld som konstant bånd.
-    cash_series = _level_series(month, liquid_sum, liquid_ids)
-    liq_points = []
-    for (m, cash) in cash_series:
-        net = cash + credit_debt
-        liq_points.append({
-            "month": m, "label": _month_label(m).split()[0][:3],
-            "cash": round(cash), "debt": round(credit_debt), "net": round(net),
-            "current": m == month,
-        })
-    nets = [p["net"] for p in liq_points]
-    cashes = [p["cash"] for p in liq_points]
-    ref3 = liq_points[-4]["net"] if len(liq_points) >= 4 else (liq_points[0]["net"] if liq_points else 0)
-    change3m = round(current_liquid - ref3)
+    # Saldoene er alltid «nå» (uavhengig av valgt måned), så øyeblikksbildet og
+    # grafen forankres til dagens dato.
+    now_month = current_month()
+    if not filtering:
+        _record_liquidity_snapshot(liquid_sum, credit_debt, current_liquid)
+    liq_points = _liquidity_history(now_month)
+    real = [p for p in liq_points if p["has"]]
+    nets = [p["net"] for p in real]
+    cashes = [p["cash"] for p in real]
+    # Endring siste 3 mnd fra faktiske øyeblikksbilder (hvis vi har eldre nok data).
+    ref3, change3m = None, None
+    if real:
+        m3 = _prev_months(now_month, 4)[0]
+        prior = [p for p in real if p["month"] <= m3]
+        if prior:
+            ref3 = prior[-1]["net"]
+            change3m = round(current_liquid - ref3)
     liquidity = {
         "current": round(current_liquid),
         "currentFmt": _fmt(current_liquid),
@@ -322,11 +333,12 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "cardDebtFmt": _fmt(-credit_debt),   # positivt tall for visning
         "hasCardDebt": credit_debt < 0,
         "points": liq_points,
-        "maxCash": max(cashes) if cashes else 0,
-        "minNet": min(nets + [0]),
-        "change3m": change3m,
-        "change3mFmt": ("+" if change3m >= 0 else "−") + _fmt(abs(change3m)),
-        "up": change3m >= 0,
+        "hasHistory": len(real) >= 2,
+        "maxCash": max(cashes) if cashes else max(1, round(liquid_sum)),
+        "minNet": min(nets + [0]) if nets else 0,
+        "change3m": change3m if change3m is not None else 0,
+        "change3mFmt": (("+" if change3m >= 0 else "−") + _fmt(abs(change3m))) if change3m is not None else "",
+        "up": change3m is None or change3m >= 0,
     }
 
     # --- lån ---

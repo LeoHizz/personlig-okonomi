@@ -333,6 +333,7 @@ function liquidityCard(d) {
   const hasDebt = L.hasCardDebt;
   const cols = L.points
     .map((p) => {
+      if (!p.has) return `<div class="liq-col liq-empty" title="${esc(p.label)}: ingen måling"></div>`;
       const cashTop = zeroPct * (1 - Math.min(1, p.cash / scaleUp)); // topp av stolpen (kontanter)
       const netY = p.net >= 0
         ? zeroPct * (1 - Math.min(1, p.net / scaleUp))
@@ -357,6 +358,12 @@ function liquidityCard(d) {
   const legend = hasDebt
     ? `<div class="liq-legend"><span><i style="background:var(--green)"></i>Egne midler</span><span><i style="background:var(--amber-bright)"></i>Lånt (kort)</span></div>`
     : "";
+  const change = L.change3mFmt
+    ? `<div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>`
+    : "";
+  const buildingNote = !L.hasHistory
+    ? `<div class="liq-note">Historikk bygges opp fra nå – ett øyeblikksbilde per dag (auto-synk kl. 05). Kurven fylles ut de neste ukene.</div>`
+    : "";
   return `<div class="card">
     <div class="cf-head">
       <div>
@@ -364,11 +371,12 @@ function liquidityCard(d) {
         <div class="liq-now">${L.currentFmt} kr</div>
         ${breakdown}
       </div>
-      <div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>
+      ${change}
     </div>
     <div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
     <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
     ${legend}
+    ${buildingNote}
   </div>`;
 }
 
