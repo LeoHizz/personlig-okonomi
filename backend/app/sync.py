@@ -110,31 +110,30 @@ def register_accounts(query: dict) -> list[str]:
         )
 
     ids = []
-    all_accts = db.query("SELECT id, name, owner, bank_code, iban, bban, hidden FROM accounts")
+    all_accts = db.query("SELECT * FROM accounts")
+    by_number = {}
+    for r in all_accts:
+        no = db.account_number(r["iban"], r["bban"])
+        if no:
+            by_number.setdefault(no, r)
     for acc in res.get("accounts", []):
-        acc_id = acc["id"]
+        uid = acc["id"]  # bankens økt-ID (uid) – kun for API-kall
         iban = acc.get("iban", "")
         bban = acc.get("bban", "")
         acctno = db.account_number(iban, bban)
-        ids.append(acc_id)
-        # Enable Banking gir nye konto-ID-er ved re-tilkobling. Arv navn/eier/etikett
-        # fra en tidligere konto med samme kontonummer (IBAN el. BBAN), mapping bevares.
-        existing = next((r for r in all_accts if r["id"] == acc_id), None)
-        prior = None
-        if not existing and acctno:
-            prior = next(
-                (r for r in sorted(all_accts, key=lambda x: x["hidden"])
-                 if db.account_number(r["iban"], r["bban"]) == acctno),
-                None,
-            )
-        src = existing or prior
-        keep_name = src["name"] if src else acc.get("name", "Konto")
-        keep_owner = src["owner"] if src else "Felles"
-        keep_code = src["bank_code"] if src else code
+        # STABIL id: kontonummeret. Da oppdaterer re-tilkobling SAMME konto
+        # (uansett hvem som logger inn / hvilken økt), i stedet for å lage duplikat.
+        stable_id = ("eb:" + acctno) if acctno else uid
+        prior = by_number.get(acctno) if acctno else next((r for r in all_accts if r["id"] == stable_id), None)
+        keep_name = prior["name"] if prior else acc.get("name", "Konto")
+        keep_owner = prior["owner"] if prior else "Felles"
+        keep_code = prior["bank_code"] if prior else code
+        keep_hidden = prior["hidden"] if prior else 0
         db.upsert(
             "accounts",
             {
-                "id": acc_id,
+                "id": stable_id,
+                "provider_ref": uid,
                 "requisition_id": conn_id,
                 "institution_id": inst_id,
                 "institution_name": inst_name,
@@ -146,20 +145,18 @@ def register_accounts(query: dict) -> list[str]:
                 "currency": acc.get("currency", "NOK"),
                 "product": acc.get("product", ""),
                 "status": "READY",
-                "hidden": 0,
-                "created_at": gc.utc_now_iso(),
+                "hidden": keep_hidden,
+                "created_at": (prior["created_at"] if prior else gc.utc_now_iso()),
             },
         )
-        # Skjul eldre duplikater med samme kontonummer (unngår at lista vokser).
-        if acctno:
-            for r in all_accts:
-                if r["id"] != acc_id and db.account_number(r["iban"], r["bban"]) == acctno:
-                    db.execute("UPDATE accounts SET hidden = 1 WHERE id = ?", (r["id"],))
+        ids.append(stable_id)
     return ids
 
 
 def sync_account(account_id: str, force: bool = False) -> dict:
-    row = db.query("SELECT last_synced FROM accounts WHERE id = ?", (account_id,))
+    row = db.query("SELECT last_synced, provider_ref FROM accounts WHERE id = ?", (account_id,))
+    # Bankens økt-ID for selve API-kallene; kontoen (account_id) er stabil.
+    ref = (row[0]["provider_ref"] if row and row[0]["provider_ref"] else account_id)
     if row and row[0]["last_synced"] and not force:
         try:
             last_dt = datetime.fromisoformat(row[0]["last_synced"])
@@ -172,12 +169,12 @@ def sync_account(account_id: str, force: bool = False) -> dict:
 
     result = {"account_id": account_id, "transactions": 0, "skipped": False}
     try:
-        _save_balances(account_id, gc.get_balances(account_id))
+        _save_balances(account_id, gc.get_balances(ref))
     except gc.Error as e:
         result["balance_error"] = str(e)
 
     date_from = (datetime.now(timezone.utc) - timedelta(days=config.HISTORY_DAYS)).date().isoformat()
-    txs = gc.get_transactions(account_id, date_from=date_from)
+    txs = gc.get_transactions(ref, date_from=date_from)
     result["transactions"] = _upsert_transactions(account_id, txs)
 
     db.execute("UPDATE accounts SET last_synced = ? WHERE id = ?", (gc.utc_now_iso(), account_id))

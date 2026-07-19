@@ -80,6 +80,7 @@ def _ensure_column(table: str, col: str, decl: str) -> None:
 async def _startup() -> None:
     db.init_db()
     _ensure_column("accounts", "bban", "TEXT")
+    _ensure_column("accounts", "provider_ref", "TEXT")
     _migrate_categories()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
@@ -322,8 +323,10 @@ async def update_account(account_id: str, request: Request):
 @app.post("/api/accounts/{account_id}/refresh")
 def refresh_account(account_id: str):
     """Hent kontonavn/IBAN/produkt fra banken igjen (letter identifisering)."""
+    ref_row = db.query("SELECT provider_ref FROM accounts WHERE id = ?", (account_id,))
+    ref = ref_row[0]["provider_ref"] if ref_row and ref_row[0]["provider_ref"] else account_id
     try:
-        d = gc.get_account_details(account_id)
+        d = gc.get_account_details(ref)
     except gc.Error as e:
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
     updates = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
@@ -339,12 +342,12 @@ def refresh_account(account_id: str):
 def refresh_all_accounts():
     """Hent navn/IBAN/produkt for alle tilkoblede kontoer (slipper å klikke hver)."""
     rows = db.query(
-        "SELECT id, name FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
+        "SELECT id, name, provider_ref FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
     )
     updated, errors = 0, 0
     for r in rows:
         try:
-            d = gc.get_account_details(r["id"])
+            d = gc.get_account_details(r["provider_ref"] or r["id"])
             fields = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
             if not r["name"] or r["name"] in ("Konto", ""):
                 fields["name"] = d.get("name", "Konto")

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     bank_code        TEXT,           -- kort etikett, f.eks. SPV / DNB / COOP
     iban             TEXT,
     bban             TEXT,           -- internt kontonummer (når IBAN mangler)
+    provider_ref     TEXT,           -- bankens økt-ID (uid) for API-kall; id er stabil
     name             TEXT,           -- visningsnavn
     owner            TEXT,           -- hvem: Felles / Anna / Martin ...
     currency         TEXT,
