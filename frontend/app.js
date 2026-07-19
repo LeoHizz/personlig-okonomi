@@ -329,15 +329,17 @@ function moneyCard(d) {
   const T = d.trend || [];
   const hasDebt = L.hasCardDebt;
 
-  // --- kombinert SVG-graf: stolper = sparing/mnd (flyt), linje = netto likviditet (nivå) ---
-  const W = 680, H = 172, padL = 6, padR = 6, padT = 12, padB = 22;
+  // --- kombinert SVG-graf: stolper = overskudd/mnd (flyt, v. akse), linje = netto likviditet (nivå, h. akse) ---
+  const W = 680, H = 176, padL = 34, padR = 40, padT = 12, padB = 22;
   const n = Math.max(1, T.length);
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const colW = plotW / n;
   const xAt = (i) => padL + colW * i + colW / 2;
+  const kfmt = (v) => (v < 0 ? "−" : "") + Math.round(Math.abs(v) / 1000) + "k";
 
+  const hasNeg = T.some((t) => t.flow < 0);
   const maxFlow = Math.max(1, ...T.map((t) => Math.abs(t.flow)));
-  const flowZeroFrac = 0.60;                       // stolpenes 0-linje 60 % ned
+  const flowZeroFrac = hasNeg ? 0.62 : 0.92;       // gi plass under 0-linja kun ved underskudd
   const yFlowZero = padT + plotH * flowZeroFrac;
   const upSpace = yFlowZero - padT, downSpace = padT + plotH - yFlowZero;
 
@@ -347,12 +349,17 @@ function moneyCard(d) {
     if (t.flow >= 0) { h = (t.flow / maxFlow) * upSpace; y = yFlowZero - h; }
     else { h = (Math.abs(t.flow) / maxFlow) * downSpace; y = yFlowZero; }
     const color = t.flow < 0 ? "var(--amber-bright)" : "var(--green)";
-    return `<rect x="${(xAt(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${color}" opacity="${t.current ? 1 : 0.8}"><title>${esc(t.label)}: sparing ${numFmt(t.flow)}</title></rect>`;
+    return `<rect x="${(xAt(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${color}" opacity="${t.current ? 1 : 0.8}"><title>${esc(t.label)}: overskudd ${numFmt(t.flow)}</title></rect>`;
   }).join("");
+
+  // venstre akse (overskudd)
+  let leftAxis = `<text x="${padL - 5}" y="${(padT + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">+${kfmt(maxFlow)}</text>`
+    + `<text x="${padL - 5}" y="${(yFlowZero + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">0</text>`;
+  if (hasNeg) leftAxis += `<text x="${padL - 5}" y="${(padT + plotH).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">−${kfmt(maxFlow)}</text>`;
 
   const showLine = !L.filtered;
   const liqPts = T.map((t, i) => ({ i, v: t.liq })).filter((p) => p.v != null);
-  let liqLine = "", liqDots = "";
+  let liqLine = "", liqDots = "", rightAxis = "";
   if (showLine && liqPts.length) {
     const vs = liqPts.map((p) => p.v);
     const lo = Math.min(0, ...vs), hi = Math.max(1, ...vs);
@@ -360,11 +367,13 @@ function moneyCard(d) {
     const pts = liqPts.map((p) => `${xAt(p.i).toFixed(1)},${yLiq(p.v).toFixed(1)}`).join(" ");
     if (liqPts.length > 1) liqLine = `<polyline fill="none" stroke="var(--navy)" stroke-width="2.5" points="${pts}"/>`;
     liqDots = liqPts.map((p) => `<circle cx="${xAt(p.i).toFixed(1)}" cy="${yLiq(p.v).toFixed(1)}" r="3.5" fill="var(--navy)"><title>${esc(T[p.i].label)}: netto likviditet ${numFmt(p.v)}</title></circle>`).join("");
+    rightAxis = `<text x="${W - padR + 5}" y="${(padT + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--navy)">${kfmt(hi)}</text>`
+      + `<text x="${W - padR + 5}" y="${(padT + plotH).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--navy)">${kfmt(lo)}</text>`;
   }
 
   const zeroLine = `<line x1="${padL}" y1="${yFlowZero.toFixed(1)}" x2="${W - padR}" y2="${yFlowZero.toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>`;
   const xlabels = T.map((t, i) => `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${t.current ? "var(--navy)" : "var(--muted)"}" ${t.current ? 'font-weight="700"' : ""}>${esc(t.label)}</text>`).join("");
-  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;height:auto;margin-top:12px">${zeroLine}${bars}${liqLine}${liqDots}${xlabels}</svg>`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;height:auto;margin-top:12px">${zeroLine}${leftAxis}${rightAxis}${bars}${liqLine}${liqDots}${xlabels}</svg>`;
 
   // --- topptekst: netto likviditet + spart hittil i år ---
   const breakdown = hasDebt
@@ -376,7 +385,7 @@ function moneyCard(d) {
   const year = esc((d.monthLabel || "").split(" ").pop() || "");
 
   const legend = `<div class="liq-legend">
-      <span><i style="background:var(--green)"></i>Sparing/mnd</span>
+      <span><i style="background:var(--green)"></i>Overskudd/mnd</span>
       <span><i style="background:var(--amber-bright)"></i>Underskudd</span>
       ${showLine ? `<span><i style="background:var(--navy);height:3px;border-radius:2px"></i>Netto likviditet</span>` : ""}
     </div>`;
@@ -397,7 +406,7 @@ function moneyCard(d) {
         ${breakdown}
       </div>
       <div style="text-align:right">
-        <div class="cf-sub muted">spart hittil i år ${year}</div>
+        <div class="cf-sub muted">overskudd i år ${year} <span title="Sum av månedlig inntekt − forbruk, januar til nå. Ikke det samme som «spart til side» – timing (lønn inn, regninger på vei ut) svinger fra måned til måned.">ⓘ</span></div>
         <div style="font-size:19px;font-weight:800;color:${ytdColor}">${ytdNeg ? "−" : "+"}${ytdVal} kr</div>
       </div>
     </div>
