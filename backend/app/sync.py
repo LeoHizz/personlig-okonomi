@@ -80,7 +80,7 @@ def _upsert_transactions(account_id: str, txs: list[dict]) -> int:
                 "category": category,
                 "category_source": source,
                 "status": t.get("status", "booked"),
-                "raw": json.dumps(t, ensure_ascii=False),
+                "raw": json.dumps(t.get("raw", t), ensure_ascii=False),
             },
         )
         count += 1

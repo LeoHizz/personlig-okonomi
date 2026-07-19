@@ -241,20 +241,36 @@ def _normalize_tx(t: dict, status_norm: str) -> dict:
         amount = float(amt.get("amount", 0))
     except (TypeError, ValueError):
         amount = 0.0
-    if t.get("credit_debit_indicator") == "DBIT":
+    dbit = t.get("credit_debit_indicator") == "DBIT"
+    if dbit:
         amount = -amount
-        counterparty = (t.get("creditor", {}) or {}).get("name", "")
-    else:
-        counterparty = (t.get("debtor", {}) or {}).get("name", "")
+    creditor = ((t.get("creditor", {}) or {}).get("name") or "").strip()
+    debtor = ((t.get("debtor", {}) or {}).get("name") or "").strip()
+    counterparty = (creditor if dbit else debtor) or creditor or debtor
+
     rem = t.get("remittance_information") or []
     remittance = " ".join(rem) if isinstance(rem, list) else str(rem)
+    remittance = remittance.strip()
+
+    # Bankens egen transaksjonstype (f.eks. «Varekjøp»/«Overføring») – ekstra
+    # signal for kategoriseringen. Formatet varierer (dict, streng, liste).
+    btc = t.get("bank_transaction_code")
+    btc_desc = ""
+    if isinstance(btc, dict):
+        btc_desc = (btc.get("description") or btc.get("code") or "").strip()
+    elif isinstance(btc, str):
+        btc_desc = btc.strip()
+    if btc_desc and btc_desc.lower() not in remittance.lower():
+        remittance = (remittance + " · " + btc_desc).strip(" ·")
+
     return {
         "id": t.get("entry_reference") or None,
         "booking_date": t.get("booking_date") or t.get("value_date") or t.get("transaction_date"),
         "value_date": t.get("value_date") or t.get("booking_date"),
         "amount": amount,
         "currency": amt.get("currency", "NOK"),
-        "counterparty": (counterparty or "").strip(),
-        "remittance": remittance.strip(),
+        "counterparty": counterparty.strip(),
+        "remittance": remittance,
         "status": status_norm,
+        "raw": t,  # hele bankens rå-svar – lagres for framtidig bruk
     }
