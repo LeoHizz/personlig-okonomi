@@ -124,6 +124,24 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
+def _level_series(month: str, current_value: float, ids: list[str]) -> list[tuple[str, float]]:
+    """Rekonstruer saldonivå 12 mnd bakover: dagens verdi − månedlige nettobevegelser."""
+    net_by_month: dict[str, float] = {}
+    if ids:
+        ph = ",".join("?" for _ in ids)
+        for r in db.query(
+            f"SELECT substr(booking_date,1,7) AS m, SUM(amount) AS net FROM transactions "
+            f"WHERE account_id IN ({ph}) AND booking_date IS NOT NULL GROUP BY m", ids):
+            net_by_month[r["m"]] = r["net"] or 0.0
+    bal = float(current_value)
+    vals: list[tuple[str, float]] = []
+    for m in reversed(_prev_months(month, 12)):
+        vals.append((m, bal))
+        bal -= net_by_month.get(m, 0.0)
+    vals.reverse()
+    return vals
+
+
 def build_dashboard(month: str | None = None, persons=None) -> dict:
     month = month or current_month()
     persons = _norm_persons(persons)
@@ -230,10 +248,13 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         )
     accounts = []
     asset_sum = 0.0      # teller i netto formue (inkl. kredittkort-gjeld som negativ)
-    liquid_sum = 0.0     # disponibel likviditet – kredittkort holdes UTENFOR
+    liquid_sum = 0.0     # disponibelt på konto (kredittkort holdt utenfor)
+    credit_debt = 0.0    # utestående kredittkortgjeld (negativ) – trekkes fra netto likviditet
     for a in acc_rows:
         bal = account_current_balance(a["id"])
         has_bal = bool(db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],)))
+        if a["is_credit"]:
+            credit_debt += bal  # gjeld er negativ, uansett is_asset
         if a["is_asset"]:
             asset_sum += bal
             if not a["is_credit"]:
@@ -269,36 +290,39 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
             }
         )
 
-    # --- likviditet (disponibelt) + utvikling ---
-    # Disponibelt = sum av tilkoblede bankkontoers saldo (is_asset). Utviklingen
-    # rekonstrueres bakover fra dagens saldo + transaksjonene på disse kontoene.
+    # --- netto likviditet + utvikling ---
+    # Netto likviditet = disponibelt på konto − utestående kredittkortgjeld. Slik
+    # reflekterer grafen hva du faktisk har å rutte med: kjøp på kort trekker den
+    # ned (låneopptak synes), nedbetaling er nøytralt (flytter penger). Utviklingen
+    # rekonstrueres bakover fra dagens netto + transaksjonene på konto OG kort.
     liquid_ids = [a["id"] for a in acc_rows if a["is_asset"] and not a["is_credit"]]
-    current_liquid = liquid_sum
-    net_by_month: dict[str, float] = {}
-    if liquid_ids:
-        ph = ",".join("?" for _ in liquid_ids)
-        for r in db.query(
-            f"SELECT substr(booking_date,1,7) AS m, SUM(amount) AS net FROM transactions "
-            f"WHERE account_id IN ({ph}) AND booking_date IS NOT NULL GROUP BY m",
-            liquid_ids,
-        ):
-            net_by_month[r["m"]] = r["net"] or 0.0
-    bal = float(current_liquid)
+    credit_ids = [a["id"] for a in acc_rows if a["is_credit"]]
+    current_liquid = liquid_sum + credit_debt
+    # To serier: kontanter (positive) og kortgjeld (negativ). Hver stolpe deles i
+    # egne midler (grønt = netto) og lånt kapital (rødt = kortgjeld).
+    cash_series = _level_series(month, liquid_sum, liquid_ids)
+    debt_series = _level_series(month, credit_debt, credit_ids)
     liq_points = []
-    for m in reversed(_prev_months(month, 12)):
-        liq_points.append({"month": m, "label": _month_label(m).split()[0][:3],
-                           "value": round(bal), "current": m == month})
-        bal -= net_by_month.get(m, 0.0)
-    liq_points.reverse()
-    liq_vals = [p["value"] for p in liq_points]
-    ref3 = liq_points[-4]["value"] if len(liq_points) >= 4 else (liq_points[0]["value"] if liq_points else 0)
+    for (m, cash), (_, debt) in zip(cash_series, debt_series):
+        net = cash + debt
+        liq_points.append({
+            "month": m, "label": _month_label(m).split()[0][:3],
+            "cash": round(cash), "debt": round(debt), "net": round(net),
+            "current": m == month,
+        })
+    nets = [p["net"] for p in liq_points]
+    cashes = [p["cash"] for p in liq_points]
+    ref3 = liq_points[-4]["net"] if len(liq_points) >= 4 else (liq_points[0]["net"] if liq_points else 0)
     change3m = round(current_liquid - ref3)
     liquidity = {
         "current": round(current_liquid),
         "currentFmt": _fmt(current_liquid),
+        "cashFmt": _fmt(liquid_sum),
+        "cardDebtFmt": _fmt(-credit_debt),   # positivt tall for visning
+        "hasCardDebt": credit_debt < 0,
         "points": liq_points,
-        "min": min(liq_vals) if liq_vals else 0,
-        "max": max(liq_vals) if liq_vals else 0,
+        "maxCash": max(cashes) if cashes else 0,
+        "minNet": min(nets + [0]),
         "change3m": change3m,
         "change3mFmt": ("+" if change3m >= 0 else "−") + _fmt(abs(change3m)),
         "up": change3m >= 0,
@@ -509,6 +533,8 @@ def build_transactions(month: str | None, persons, category: str | None,
         if flow == "in" and not (t["amount"] > 0 and t["category"] != "Overføring"):
             continue
         if flow == "out" and not (t["amount"] < 0 and t["category"] != "Overføring"):
+            continue
+        if flow == "fixed" and not (t["amount"] < 0 and t["category"] in categorize.FIXED_CATEGORIES):
             continue
         text = f"{t['counterparty']} {t['remittance']} {t['category']}".lower()
         if q and q not in text:

@@ -165,8 +165,8 @@ function renderDashboard() {
       ${kpi("Netto formue", k.netWorth, k.netWorthNote)}
       ${kpi("Inn", k.income, "denne måneden", false, "goTxFlow('in')")}
       ${kpi("Ut", k.expense, "denne måneden", false, "goTxFlow('out')")}
-      ${kpi("Faste utgifter", k.fixed, `${k.fixedPct} % av forbruket`)}
-      ${kpi("Sparerate", k.savingsRate + " %", `mål: ${k.savingsGoal} %`, true)}
+      ${kpi("Faste utgifter", k.fixed, `${k.fixedPct} % av forbruket`, false, "goTxFlow('fixed')")}
+      ${kpi("Sparerate", k.savingsRate + " %", `mål: ${k.savingsGoal} %`, true, "goAnalyse()")}
     </div>
     ${d.summary ? `<div class="ai">
       <div class="ai-icon">✻</div>
@@ -327,28 +327,48 @@ function categoryCard(d) {
 function liquidityCard(d) {
   const L = d.liquidity;
   if (!L) return "";
-  const range = Math.max(1, L.max - L.min);
-  const bars = L.points
+  const scaleUp = Math.max(1, L.maxCash);
+  const scaleDown = Math.max(0, -(L.minNet || 0));
+  const zeroPct = (scaleUp / (scaleUp + scaleDown)) * 100; // % fra topp der 0 er
+  const hasDebt = L.hasCardDebt;
+  const cols = L.points
     .map((p) => {
-      const h = Math.max(6, Math.round(15 + ((p.value - L.min) / range) * 85));
-      const color = p.current ? "var(--navy)" : "#7fa0bd";
-      return `<div style="height:${h}%;background:${color};opacity:${p.current ? "1" : "0.75"}" title="${esc(p.label)}: ${p.value}"></div>`;
+      const cashTop = zeroPct * (1 - Math.min(1, p.cash / scaleUp)); // topp av stolpen (kontanter)
+      const netY = p.net >= 0
+        ? zeroPct * (1 - Math.min(1, p.net / scaleUp))
+        : zeroPct + (100 - zeroPct) * Math.min(1, -p.net / (scaleDown || 1));
+      const greenTop = Math.min(netY, zeroPct);
+      const greenH = Math.max(0, zeroPct - greenTop);   // egne midler (netto), kun når netto > 0
+      const redH = Math.max(0, netY - cashTop);          // lånt kapital (kortgjeld)
+      const gCol = p.current ? "var(--navy)" : "var(--green)";
+      const green = greenH > 0.3 ? `<div class="liq-seg" style="top:${greenTop}%;height:${greenH}%;background:${gCol}"></div>` : "";
+      const red = (hasDebt && redH > 0.3) ? `<div class="liq-seg" style="top:${cashTop}%;height:${redH}%;background:var(--amber-bright);opacity:${p.current ? "1" : "0.82"}"></div>` : "";
+      const soloBar = !hasDebt ? `<div class="liq-seg" style="top:${greenTop}%;height:${Math.max(0.3, zeroPct - greenTop)}%;background:${gCol};opacity:${p.current ? "1" : "0.8"}"></div>` : "";
+      return `<div class="liq-col" title="${esc(p.label)}: netto ${numFmt(p.net)}${hasDebt ? " · kort −" + numFmt(-p.debt) : ""}">${hasDebt ? green + red : soloBar}</div>`;
     })
     .join("");
   const labels = L.points
     .map((p) => `<div ${p.current ? 'style="font-weight:700;color:var(--navy)"' : ""}>${esc(p.label)}</div>`)
     .join("");
   const chColor = L.up ? "var(--green)" : "var(--amber)";
+  const breakdown = hasDebt
+    ? `<div class="liq-break">disponibelt ${L.cashFmt} − kortgjeld ${L.cardDebtFmt}</div>`
+    : "";
+  const legend = hasDebt
+    ? `<div class="liq-legend"><span><i style="background:var(--green)"></i>Egne midler</span><span><i style="background:var(--amber-bright)"></i>Lånt (kort)</span></div>`
+    : "";
   return `<div class="card">
     <div class="cf-head">
       <div>
-        <div class="card-title">Likviditet — disponibelt nå</div>
+        <div class="card-title">Likviditet — reelt disponibelt</div>
         <div class="liq-now">${L.currentFmt} kr</div>
+        ${breakdown}
       </div>
       <div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>
     </div>
-    <div class="cf-bars" style="gap:6px">${bars}</div>
+    <div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
     <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
+    ${legend}
   </div>`;
 }
 
@@ -524,7 +544,7 @@ async function renderTransactions() {
     <div class="chips" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">${periodChips}</div>
     <div class="chips">
       ${chips}
-      ${state.tx.flow ? `<button class="cat-filter" onclick="clearFlowFilter()">${state.tx.flow === "in" ? "Kun inn" : "Kun ut"} ✕</button>` : ""}
+      ${state.tx.flow ? `<button class="cat-filter" onclick="clearFlowFilter()">${({ in: "Kun inn", out: "Kun ut", fixed: "Faste utgifter" })[state.tx.flow] || "Filter"} ✕</button>` : ""}
       ${state.tx.category ? `<button class="cat-filter" onclick="clearCatFilter()">${esc(state.tx.category)} ✕</button>` : ""}
     </div>
     ${labelFilter ? `<div class="chips">${labelFilter}</div>` : ""}

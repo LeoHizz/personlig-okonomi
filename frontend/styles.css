@@ -33,6 +33,8 @@ button{cursor:pointer}
 .kpi-click:hover{border-color:var(--navy);box-shadow:0 1px 6px rgba(22,50,74,.08)}
 .kpi-arrow{color:var(--muted);font-weight:700}
 .kpi-click:hover .kpi-arrow{color:var(--navy)}
+.kpi.dark.kpi-click:hover{border-color:var(--navy-soft);box-shadow:0 1px 6px rgba(0,0,0,.18)}
+.kpi.dark .kpi-arrow,.kpi.dark.kpi-click:hover .kpi-arrow{color:var(--navy-soft)}
 .kpi.dark{background:var(--navy);border-color:var(--navy);color:#fff}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .kpi.dark .kpi-label{color:var(--navy-soft)}
@@ -102,6 +104,15 @@ button{cursor:pointer}
 .cf-head{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .cf-sub{font-size:11.5px;color:var(--muted)}
 .liq-now{font-size:22px;font-weight:800;letter-spacing:-.01em;margin-top:2px}
+.liq-break{font-size:11px;color:var(--muted);margin-top:2px}
+.liq-wrap{position:relative;height:110px;margin-top:14px}
+.liq-zero{position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--line);z-index:1}
+.liq-cols{display:flex;gap:6px;height:100%;align-items:stretch}
+.liq-col{flex:1;position:relative;height:100%}
+.liq-seg{position:absolute;left:0;right:0;border-radius:2px}
+.liq-legend{display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--muted)}
+.liq-legend span{display:inline-flex;align-items:center;gap:5px}
+.liq-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
 .cf-bars{display:flex;gap:14px;align-items:flex-end;height:100px;margin-top:14px}
 .cf-bars > div{flex:1;border-radius:3px 3px 0 0}
 .cf-labels{display:flex;gap:14px;font-size:11px;color:var(--muted);text-align:center;margin-top:6px}
