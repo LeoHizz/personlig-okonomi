@@ -124,6 +124,15 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
+def _income_spending(txs: list[dict]) -> tuple[float, float]:
+    """Som KPI-ene INN/UT: inntekt (positive, ekskl. Overføring) og forbruk
+    (negative, ekskl. både Inntekt og Overføring). Brukes til cashflow så tallet
+    blir nøyaktig = INN − UT (og dermed spareraten)."""
+    income = sum(t["amount"] for t in txs if t["amount"] > 0 and t["category"] != "Overføring")
+    spending = sum(-t["amount"] for t in txs if t["amount"] < 0 and t["category"] not in NON_EXPENSE)
+    return income, spending
+
+
 def _record_liquidity_snapshot(cash: float, debt: float, net: float) -> None:
     """Lagre dagens netto likviditet (ett øyeblikksbilde per dato, siste vinner)."""
     today = date.today().isoformat()
@@ -402,12 +411,11 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
 
     net_worth = asset_sum + manual_asset_sum - liability_sum
 
-    # --- cashflow siste 7 måneder ---
+    # --- cashflow siste 7 måneder (netto = INN − UT, samme som spareraten) ---
     cashflow = []
     for m in _prev_months(month, 7):
-        mtx = _month_transactions(m, persons)
-        inc, exp = _income_expense(mtx)
-        net = inc - exp
+        inc, spend = _income_spending(_month_transactions(m, persons))
+        net = inc - spend
         cashflow.append(
             {
                 "label": _month_label(m).split()[0][:3],
@@ -417,7 +425,12 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
                 "current": m == month,
             }
         )
-    ytd_net = sum(c["net"] for c in cashflow)
+    # Ekte «hittil i år»: januar → valgt måned (kalenderår), ikke bare 7 mnd.
+    yr, mo = int(month[:4]), int(month[5:7])
+    ytd_net = 0.0
+    for mm in range(1, mo + 1):
+        inc, spend = _income_spending(_month_transactions(f"{yr:04d}-{mm:02d}", persons))
+        ytd_net += inc - spend
 
     # --- budsjett totalt ---
     total_budget = sum(budgets.values()) if budgets else 0

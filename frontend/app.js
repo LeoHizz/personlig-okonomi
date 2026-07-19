@@ -410,8 +410,18 @@ function cashflowCard(d) {
       return `<div ${cls}>${c.label} ${sign}${Math.abs(c.netK)}k</div>`;
     })
     .join("");
+  const ytdNeg = d.ytdNet.startsWith("-");
+  const ytdVal = ytdNeg ? d.ytdNet.slice(1) : d.ytdNet;
+  const ytdColor = ytdNeg ? "var(--amber)" : "var(--green)";
   return `<div class="card">
-    <div class="cf-head"><div class="card-title">Cashflow — netto per måned</div><div class="cf-sub">hittil i år: ${d.ytdNet.startsWith("-") ? "" : "+"}${d.ytdNet} kr</div></div>
+    <div class="cf-head">
+      <div>
+        <div class="card-title">Cashflow — spart per måned</div>
+        <div class="liq-now" style="color:${ytdColor}">${ytdNeg ? "−" : "+"}${ytdVal} kr</div>
+        <div class="liq-break">spart hittil i år (${esc((d.monthLabel || "").split(" ").pop() || "")})</div>
+      </div>
+      <div class="cf-sub muted">${cf.length} siste mnd</div>
+    </div>
     <div class="cf2-wrap"><div class="cf2-zero"></div><div class="cf2">${cols}</div></div>
     <div class="cf-labels">${labels}</div>
   </div>`;
