@@ -37,6 +37,14 @@ def _prev_months(month: str, count: int) -> list[str]:
     return list(reversed(out))
 
 
+def _parse_rate(s) -> float:
+    """«4,73» / «4.73%» -> 0.0473 (årlig rente som desimal)."""
+    try:
+        return float(str(s).replace(",", ".").strip().rstrip("%").strip()) / 100.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _months_between(a: str, b: str) -> int:
     """Antall måneder fra a til b (begge 'YYYY-MM'). Negativ hvis b er før a."""
     try:
@@ -289,11 +297,24 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     for lb in manual_liabilities:
         estimated = False
         if lb.get("auto"):
-            # Estimert restgjeld = startsaldo − avdrag × antall måneder siden start.
+            # Estimert restgjeld via amortisering: hver måned er en del av terminbeløpet
+            # renter (saldo × rente/12) og resten avdrag. Uten rente: lineær nedbetaling.
             start_balance = float(lb.get("start_balance", 0) or 0)
             monthly = float(lb.get("monthly_payment", 0) or 0)
             elapsed = max(0, _months_between(lb.get("start_date", ""), month))
-            balance = max(0.0, start_balance - monthly * elapsed)
+            rate = _parse_rate(lb.get("rate"))
+            bal = start_balance
+            if rate > 0:
+                r = rate / 12.0
+                for _ in range(elapsed):
+                    principal = monthly - bal * r  # avdrag = terminbeløp − renter
+                    bal -= principal
+                    if bal <= 0:
+                        bal = 0.0
+                        break
+            else:
+                bal = start_balance - monthly * elapsed
+            balance = max(0.0, bal)
             original = float(lb.get("original", 0) or 0) or start_balance or balance
             estimated = True
         else:

@@ -412,7 +412,7 @@ function loansCard(d) {
   return `<div class="card">
     <div class="card-title">Lån</div>
     ${items}
-    ${anyEstimated ? `<div class="loan-sub" style="margin-top:12px;font-size:11px;color:#9aa0aa">Estimert restgjeld beregnes fra startsaldo og avdrag – oppdater med et ferskt tall fra nettbanken ved behov.</div>` : ""}
+    ${anyEstimated ? `<div class="loan-sub" style="margin-top:12px;font-size:11px;color:#9aa0aa">Estimert restgjeld beregnes fra startsaldo, terminbeløp og rente (amortisering). For best treff: bruk restgjeld i dag som startsaldo og denne måneden som startmåned.</div>` : ""}
   </div>`;
 }
 
