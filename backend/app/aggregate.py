@@ -503,11 +503,18 @@ def build_transactions(month: str | None, persons, category: str | None,
         if label and label != "Alle" and label not in lbls:
             continue
         amt = t["amount"]
+        cp = (t["counterparty"] or "").strip()
+        rem = (t["remittance"] or "").strip()
+        primary = cp or rem or "—"
+        # Vis remittance som detalj-linje når den tilfører noe utover hovedteksten
+        # (f.eks. «Overføring mellom egne kontoer», «Til: EUROCARD Betalt: 17.07.26»).
+        sub = rem if (rem and rem.lower() != primary.lower()) else ""
         out.append(
             {
                 "id": t["id"],
                 "date": _short_date(t["booking_date"]),
-                "desc": t["counterparty"] or t["remittance"] or "—",
+                "desc": primary,
+                "sub": sub,
                 "cat": t["category"],
                 "acct": t["bank_code"] or t["acct_name"] or "",
                 "person": t["owner"] or "",

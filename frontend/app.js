@@ -483,7 +483,8 @@ async function renderTransactions() {
   const descCell = (t) => {
     const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${esc(t.id)}','${esc(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
     const opts = allLabels.map((l) => `<option>${esc(l)}</option>`).join("");
-    return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span><span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
+    const sub = t.sub ? `<span class="tx-sub">${esc(t.sub)}</span>` : "";
+    return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span>${sub}<span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
   };
   const rows = res.rows
     .map(
