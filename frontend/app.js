@@ -1033,7 +1033,19 @@ function renderSettings(tab) {
       <div id="ruleRows">${(s.category_rules || []).map((r) => ruleRow(r)).join("")}</div>
       <button class="small-add" onclick="addRule()">+ Legg til regel</button>`;
   } else if (tab === "merkelapper") {
-    body = `<div class="sub" style="margin-bottom:10px">Merkelapper er en dimensjon på tvers av kategorier (f.eks. Hytte, Ferie). «Mønster» matcher tekst i transaksjonen. Du kan også merke en transaksjon direkte i transaksjonslista – da lages en regel her.</div>
+    const builtin = ["Hytte", "Hjemme", "Ferie", "Jobb"];
+    body = `<div class="sub" style="margin-bottom:10px">Merkelapper er en dimensjon på tvers av kategorier (f.eks. Hytte, Ferie). Merking i transaksjonslista gjelder <b>kun den ene transaksjonen</b>.</div>
+      <div style="font-weight:600;font-size:12.5px;margin-bottom:6px">Egne merkelapper</div>
+      <div id="customLabelChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${builtin.map((l) => `<span class="tx-label" style="cursor:default;opacity:.65" title="Fast merkelapp">${esc(l)}</span>`).join("")}
+        ${(s.custom_labels || []).map((l) => customLabelChip(l)).join("")}
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <input id="newLabelInput" placeholder="Ny merkelapp (f.eks. Oppussing)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomLabel()}">
+        <button class="small-add" onclick="addCustomLabel()">+ Legg til</button>
+      </div>
+      <div style="font-weight:600;font-size:12.5px;margin-bottom:6px">Valgfrie regler (auto-merking)</div>
+      <div class="sub" style="margin-bottom:10px">Vil du at et fast sted alltid merkes automatisk, lag en regel her. «Mønster» matcher tekst i transaksjonen.</div>
       <datalist id="labelSuggestions">${(s.labels || []).map((l) => `<option value="${esc(l)}">`).join("")}</datalist>
       <div id="labelRuleRows">${(s.label_rules || []).map((r) => labelRuleRow(r)).join("")}</div>
       <button class="small-add" onclick="addLabelRule()">+ Legg til merkelapp-regel</button>`;
@@ -1115,6 +1127,20 @@ function labelRuleRow(r = {}) {
   </div>`;
 }
 function addLabelRule() { document.getElementById("labelRuleRows").insertAdjacentHTML("beforeend", labelRuleRow()); }
+function customLabelChip(l) {
+  return `<span class="tx-label custom-label-chip" data-label="${esc(l)}" style="cursor:default">${esc(l)} <span onclick="this.closest('.custom-label-chip').remove()" style="cursor:pointer;font-weight:700" title="Fjern merkelapp">✕</span></span>`;
+}
+function addCustomLabel() {
+  const inp = document.getElementById("newLabelInput");
+  const v = (inp.value || "").trim();
+  if (!v) return;
+  const existing = [...document.querySelectorAll(".custom-label-chip")].map((c) => c.dataset.label.toLowerCase());
+  const builtin = ["hytte", "hjemme", "ferie", "jobb"];
+  if (existing.includes(v.toLowerCase()) || builtin.includes(v.toLowerCase())) { inp.value = ""; return; }
+  document.getElementById("customLabelChips").insertAdjacentHTML("beforeend", customLabelChip(v));
+  inp.value = "";
+  inp.focus();
+}
 async function refreshAccount(id) {
   toast("Henter saldo og transaksjoner …");
   try {
@@ -1192,6 +1218,9 @@ async function saveSettings(tab) {
     payload.label_rules = [...document.querySelectorAll(".label-rule-row")]
       .map((r) => rowObj(r))
       .filter((o) => (o.pattern || "").trim() && (o.label || "").trim());
+    payload.custom_labels = [...document.querySelectorAll(".custom-label-chip")]
+      .map((c) => c.dataset.label)
+      .filter(Boolean);
   } else if (tab === "lan") {
     payload.manual_liabilities = [...document.querySelectorAll(".loan-row")]
       .map((r) => rowObj(r))
@@ -1249,7 +1278,7 @@ function monthShort(label) {
 // eksponer funksjoner brukt i inline onclick
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
-  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
+  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,

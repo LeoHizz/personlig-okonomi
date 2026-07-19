@@ -82,6 +82,7 @@ async def _startup() -> None:
     _ensure_column("accounts", "bban", "TEXT")
     _ensure_column("accounts", "provider_ref", "TEXT")
     _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
+    _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
     _migrate_categories()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
@@ -282,6 +283,7 @@ def get_settings():
         "manual_liabilities": db.get_setting("manual_liabilities", []),
         "category_rules": db.get_setting("category_rules", []),
         "label_rules": db.get_setting("label_rules", []),
+        "custom_labels": labels.custom_labels(),
         "labels": labels.all_labels(),
         "categories": categorize.CATEGORY_ORDER,
         "accounts": _accounts_with_balance(),
@@ -306,7 +308,7 @@ def _accounts_with_balance() -> list[dict]:
 async def save_settings(request: Request):
     body = await request.json()
     for key in ("household_name", "savings_goal_pct", "budgets",
-                "manual_assets", "manual_liabilities", "category_rules", "label_rules"):
+                "manual_assets", "manual_liabilities", "category_rules", "label_rules", "custom_labels"):
         if key in body:
             db.set_setting(key, body[key])
     if "category_rules" in body:
@@ -478,20 +480,17 @@ async def set_category(tx_id: str, request: Request):
 async def set_label(tx_id: str, request: Request):
     body = await request.json()
     lab = (body.get("label") or "").strip()
-    row = db.query("SELECT counterparty, remittance FROM transactions WHERE id = ?", (tx_id,))
+    row = db.query("SELECT id FROM transactions WHERE id = ?", (tx_id,))
     if not lab or not row:
         return JSONResponse({"error": "label eller transaksjon mangler"}, status_code=400)
-    cp = row[0]["counterparty"]
-    rem = row[0]["remittance"]
-    # Mange kortkjøp har tom counterparty (butikknavnet ligger i remittance) –
-    # fall tilbake på remittance så regelen faktisk lages og labels_for matcher.
-    source = cp if (cp or "").strip() else rem
-    # Å merke en transaksjon lager/fjerner en label-regel for samme sted.
+    # Per-transaksjon: merker KUN denne ene (ingen auto-regel). Faste steder styres
+    # med valgfrie regler i Innstillinger → Merkelapper.
     if body.get("remove"):
-        labels.remove_label_rule(source, lab)
+        labels.tx_remove_label(tx_id, lab)
     else:
-        labels.learn_label_rule(source, lab)
-    return {"ok": True, "labels": labels.labels_for(cp, rem)}
+        labels.tx_add_label(tx_id, lab)
+    full = db.query("SELECT counterparty, remittance, labels FROM transactions WHERE id = ?", (tx_id,))
+    return {"ok": True, "labels": labels.labels_for_row(full[0])}
 
 
 # --- frontend ---

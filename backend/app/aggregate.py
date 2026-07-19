@@ -508,7 +508,7 @@ def build_transactions(month: str | None, persons, category: str | None,
         text = f"{t['counterparty']} {t['remittance']} {t['category']}".lower()
         if q and q not in text:
             continue
-        lbls = labelmod.labels_for(t["counterparty"], t["remittance"])
+        lbls = labelmod.labels_for_row(t)
         if label and label != "Alle" and label not in lbls:
             continue
         amt = t["amount"]
@@ -569,7 +569,7 @@ def build_analysis(month: str | None = None, persons=None,
     def mtx(m: str) -> list[dict]:
         rows = _month_transactions(m, persons)
         if label and label != "Alle":
-            rows = [t for t in rows if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
+            rows = [t for t in rows if label in labelmod.labels_for_row(t)]
         return rows
 
     cur_txs = mtx(month)
@@ -581,7 +581,7 @@ def build_analysis(month: str | None = None, persons=None,
     by_label: dict[str, float] = defaultdict(float)
     for t in _month_transactions(month, persons):
         if t["amount"] < 0 and t["category"] not in NON_EXPENSE:
-            for lab in labelmod.labels_for(t["counterparty"], t["remittance"]):
+            for lab in labelmod.labels_for_row(t):
                 by_label[lab] += -t["amount"]
     label_breakdown = sorted(
         [{"label": k, "amountFmt": _fmt(v)} for k, v in by_label.items()],
@@ -742,7 +742,7 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
     if persons:
         txs = [t for t in txs if (t["owner"] or "") in persons]
     if label and label != "Alle":
-        txs = [t for t in txs if label in labelmod.labels_for(t["counterparty"], t["remittance"])]
+        txs = [t for t in txs if label in labelmod.labels_for_row(t)]
 
     expenses = [t for t in txs if t["amount"] < 0]
     total = sum(-t["amount"] for t in expenses)
