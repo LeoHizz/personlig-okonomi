@@ -178,8 +178,9 @@ def dashboard(month: str | None = None, persons: str | None = None):
 @app.get("/api/transactions")
 def transactions(month: str | None = None, persons: str | None = None,
                  category: str | None = None, q: str | None = None,
-                 period: str | None = None, label: str | None = None):
-    return aggregate.build_transactions(month, persons, category, q, period, label)
+                 period: str | None = None, label: str | None = None,
+                 flow: str | None = None):
+    return aggregate.build_transactions(month, persons, category, q, period, label, flow)
 
 
 @app.get("/api/budget")

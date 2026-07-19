@@ -29,6 +29,10 @@ button{cursor:pointer}
 /* kpi */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi-click{transition:border-color .12s,box-shadow .12s}
+.kpi-click:hover{border-color:var(--navy);box-shadow:0 1px 6px rgba(22,50,74,.08)}
+.kpi-arrow{color:var(--muted);font-weight:700}
+.kpi-click:hover .kpi-arrow{color:var(--navy)}
 .kpi.dark{background:var(--navy);border-color:var(--navy);color:#fff}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .kpi.dark .kpi-label{color:var(--navy-soft)}

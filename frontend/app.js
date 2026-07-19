@@ -8,7 +8,7 @@ const state = {
   data: null,
   sel: null,
   persons: [],
-  tx: { persons: [], category: null, query: "", period: "month", label: "Alle" },
+  tx: { persons: [], category: null, query: "", period: "month", label: "Alle", flow: null },
   label: "Alle",
   budgetYear: null,
   budgetData: null,
@@ -163,8 +163,8 @@ function renderDashboard() {
     ${personFilter(d)}
     <div class="kpi-grid">
       ${kpi("Netto formue", k.netWorth, k.netWorthNote)}
-      ${kpi("Inn", k.income, "denne måneden")}
-      ${kpi("Ut", k.expense, `${k.fixedPct ? "" : ""}denne måneden`)}
+      ${kpi("Inn", k.income, "denne måneden", false, "goTxFlow('in')")}
+      ${kpi("Ut", k.expense, "denne måneden", false, "goTxFlow('out')")}
       ${kpi("Faste utgifter", k.fixed, `${k.fixedPct} % av forbruket`)}
       ${kpi("Sparerate", k.savingsRate + " %", `mål: ${k.savingsGoal} %`, true)}
     </div>
@@ -259,12 +259,12 @@ function header() {
   </div>`;
 }
 
-function kpi(label, value, note, dark) {
-  const noteCls = dark ? "kpi-note" : "kpi-note";
-  return `<div class="kpi ${dark ? "dark" : ""}">
-    <div class="kpi-label">${label}</div>
+function kpi(label, value, note, dark, onclick) {
+  const clk = onclick ? ` onclick="${onclick}" style="cursor:pointer" title="Se transaksjonene"` : "";
+  return `<div class="kpi ${dark ? "dark" : ""}${onclick ? " kpi-click" : ""}"${clk}>
+    <div class="kpi-label">${label}${onclick ? ' <span class="kpi-arrow">›</span>' : ""}</div>
     <div class="kpi-value">${esc(value)}</div>
-    <div class="${noteCls}">${esc(note)}</div>
+    <div class="kpi-note">${esc(note)}</div>
   </div>`;
 }
 
@@ -450,6 +450,7 @@ async function renderTransactions() {
     if (state.tx.query) params.set("q", state.tx.query);
     if (state.tx.period) params.set("period", state.tx.period);
     if (state.tx.label && state.tx.label !== "Alle") params.set("label", state.tx.label);
+    if (state.tx.flow) params.set("flow", state.tx.flow);
     res = await api.get("/api/transactions?" + params.toString());
   } catch (e) {
     res = { rows: [], count: 0, persons: ["Alle"], allLabels: [] };
@@ -462,7 +463,15 @@ async function renderTransactions() {
     })
     .join("");
 
-  const periodChips = [["month", "Denne mnd"], ["3m", "3 mnd"], ["12m", "12 mnd"], ["all", "Alt"]]
+  const atCurrentTx = (state.month || currentYm()) >= currentYm();
+  const txMonthNav = state.tx.period === "month"
+    ? `<div class="month-nav" style="margin-right:8px">
+        <button class="mnav" onclick="txMonth(-1)" title="Forrige måned">‹</button>
+        <span style="min-width:104px;text-align:center;font-weight:600;font-size:13px">${esc(res.monthLabel || "")}</span>
+        <button class="mnav" onclick="txMonth(1)" title="Neste måned" ${atCurrentTx ? "disabled" : ""}>›</button>
+      </div>`
+    : "";
+  const periodChips = txMonthNav + [["month", "Måned"], ["3m", "3 mnd"], ["12m", "12 mnd"], ["all", "Alt"]]
     .map(([v, l]) => `<button class="person-chip ${state.tx.period === v ? "active" : ""}" onclick="setTxPeriod('${v}')">${esc(l)}</button>`)
     .join("");
 
@@ -512,9 +521,10 @@ async function renderTransactions() {
       </div>
       <input class="tx-search" placeholder="Søk i beskrivelse eller kategori…" value="${esc(state.tx.query)}" oninput="onQuery(this.value)">
     </div>
-    <div class="chips">${periodChips}</div>
+    <div class="chips" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">${periodChips}</div>
     <div class="chips">
       ${chips}
+      ${state.tx.flow ? `<button class="cat-filter" onclick="clearFlowFilter()">${state.tx.flow === "in" ? "Kun inn" : "Kun ut"} ✕</button>` : ""}
       ${state.tx.category ? `<button class="cat-filter" onclick="clearCatFilter()">${esc(state.tx.category)} ✕</button>` : ""}
     </div>
     ${labelFilter ? `<div class="chips">${labelFilter}</div>` : ""}
@@ -857,9 +867,29 @@ async function removeTxLabel(id, label) {
   }
 }
 function clearCatFilter() { state.tx.category = null; renderTransactions(); }
+function clearFlowFilter() { state.tx.flow = null; renderTransactions(); }
 function selectCat(name) { state.sel = name; renderDashboard(); }
-function goTx() { state.view = "tx"; state.tx.category = null; render(); }
-function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.query = ""; state.tx.persons = []; render(); }
+function goTx() { state.view = "tx"; state.tx.category = null; state.tx.flow = null; render(); }
+function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.flow = null; state.tx.query = ""; state.tx.persons = []; render(); }
+// Fra INN/UT-kortene: vis månedens inn- eller ut-transaksjoner (samme måned + personfilter som forsiden)
+function goTxFlow(flow) {
+  state.view = "tx";
+  state.tx.flow = flow;
+  state.tx.category = null;
+  state.tx.query = "";
+  state.tx.period = "month";
+  state.tx.persons = [...state.persons];
+  state.tx.label = "Alle";
+  render();
+}
+// Månedsnavigasjon i transaksjoner (som på forsiden)
+function txMonth(delta) {
+  const ny = addMonth(state.month || currentYm(), delta);
+  if (ny > currentYm()) return;
+  state.month = ny;
+  state.tx.period = "month";
+  renderTransactions();
+}
 function goDash() { state.view = "dash"; loadDashboard(); }
 
 async function openMerchant(name) {
@@ -1280,7 +1310,7 @@ function monthShort(label) {
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
   addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
-  setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
+  setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,
 });

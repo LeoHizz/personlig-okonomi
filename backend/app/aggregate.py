@@ -493,7 +493,7 @@ _PERIOD_LABELS = {"month": "Denne måneden", "3m": "Siste 3 mnd", "12m": "Siste 
 
 def build_transactions(month: str | None, persons, category: str | None,
                        query: str | None, period: str | None = None,
-                       label: str | None = None) -> dict:
+                       label: str | None = None, flow: str | None = None) -> dict:
     month = month or current_month()
     persons = _norm_persons(persons)
     period = period if period in _PERIOD_LABELS else "month"
@@ -504,6 +504,11 @@ def build_transactions(month: str | None, persons, category: str | None,
         if persons and (t["owner"] or "") not in persons:
             continue
         if category and t["category"] != category:
+            continue
+        # Inn/ut: samme definisjon som KPI-ene på forsiden (overføringer holdes utenfor).
+        if flow == "in" and not (t["amount"] > 0 and t["category"] != "Overføring"):
+            continue
+        if flow == "out" and not (t["amount"] < 0 and t["category"] != "Overføring"):
             continue
         text = f"{t['counterparty']} {t['remittance']} {t['category']}".lower()
         if q and q not in text:
@@ -538,7 +543,8 @@ def build_transactions(month: str | None, persons, category: str | None,
             "categories": list(categorize.CATEGORY_ORDER) + ["Inntekt", "Overføring"],
             "allLabels": labelmod.all_labels(), "label": label or "Alle",
             "month": month, "monthLabel": _month_label(month),
-            "period": period, "periodLabel": _PERIOD_LABELS[period]}
+            "period": period, "periodLabel": _PERIOD_LABELS[period],
+            "flow": flow or ""}
 
 
 def _short_date(iso: str | None) -> str:
