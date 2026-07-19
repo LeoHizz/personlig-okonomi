@@ -100,6 +100,7 @@ async def _startup() -> None:
     _ensure_column("accounts", "bban", "TEXT")
     _ensure_column("accounts", "provider_ref", "TEXT")
     _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
+    _ensure_column("accounts", "credit_limit", "REAL")  # manuell kredittramme (nødbuffer-utregning)
     _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
@@ -391,6 +392,17 @@ async def update_account(account_id: str, request: Request):
                 )
             except ValueError:
                 pass
+
+    # Manuell kredittramme (for kort banken ikke gir ramme på, f.eks. Coop).
+    if "credit_limit" in body:
+        raw = str(body.get("credit_limit", "")).strip().replace(" ", "").replace(",", ".")
+        val = None
+        if raw not in ("", "-"):
+            try:
+                val = float(raw)
+            except ValueError:
+                val = None
+        db.execute("UPDATE accounts SET credit_limit = ? WHERE id = ?", (val, account_id))
 
     allowed = {"name", "owner", "bank_code", "is_asset", "is_credit", "hidden", "sort_order"}
     fields = {k: v for k, v in body.items() if k in allowed}

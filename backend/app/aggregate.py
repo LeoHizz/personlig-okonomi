@@ -273,7 +273,9 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
                 "SELECT amount FROM balances WHERE account_id = ? AND balance_type = 'available'",
                 (a["id"],))
             if av:
-                credit_available += av[0]["amount"]
+                credit_available += av[0]["amount"]           # banken gir ledig kreditt
+            elif a["credit_limit"]:
+                credit_available += max(0.0, a["credit_limit"] + bal)  # ramme − benyttet (bal er neg.)
         if a["is_asset"]:
             asset_sum += bal
             if not a["is_credit"]:

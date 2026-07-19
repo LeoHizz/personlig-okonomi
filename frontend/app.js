@@ -1082,6 +1082,7 @@ function renderSettings(tab) {
           <div class="field" style="margin:0"><label>Eier / hvem</label><input class="acc-in" data-id="${esc(a.id)}" data-f="owner" value="${esc(a.owner || "")}"></div>
         </div>
         ${isCsv ? `<div class="field" style="margin:8px 0 0"><label>${a.is_credit ? "Utestående beløp" : "Disponibelt beløp"} (manuelt – f.eks. fra ${esc(a.name || "nettbanken")})</label><input class="acc-in" data-id="${esc(a.id)}" data-f="manual_balance" type="number" inputmode="decimal" placeholder="f.eks. 24000" value="${a.manualBalance != null ? esc(a.manualBalance) : ""}"></div>` : ""}
+        ${a.is_credit ? `<div class="field" style="margin:8px 0 0"><label>Kredittramme (kr – for nødbuffer/ledig kreditt)</label><input class="acc-in" data-id="${esc(a.id)}" data-f="credit_limit" type="number" inputmode="decimal" placeholder="f.eks. 100000" value="${a.credit_limit != null ? esc(a.credit_limit) : ""}"></div>` : ""}
         <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">
           <label style="font-size:12px;color:#4a505a;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-credit" data-id="${esc(a.id)}" ${a.is_credit ? "checked" : ""}> Kredittkort – vis utestående (ikke disponibelt)</label>
           <label style="font-size:12px;color:#4a505a;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="acc-hidden" data-id="${esc(a.id)}" ${a.hidden ? "checked" : ""}> Deaktiver – utelat fra alle oversikter og transaksjoner</label>
