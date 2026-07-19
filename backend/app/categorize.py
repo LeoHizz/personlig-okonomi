@@ -22,6 +22,7 @@ CATEGORY_COLORS: dict[str, str] = {
     "Strøm": "#c2ccd6",
     "Abonnementer": "#7fa0bd",
     "Renter og gebyrer": "#b5546a",
+    "Gaver og veldedighet": "#c98ab5",
     "Annet": "#e3e6ea",
     "Inntekt": "#2f7a5e",
     "Overføring": "#9aa0aa",
@@ -30,7 +31,7 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 3
+RULES_VERSION = 4
 
 CATEGORY_ORDER = [
     "Bolig og lån",
@@ -48,6 +49,7 @@ CATEGORY_ORDER = [
     "Strøm",
     "Abonnementer",
     "Renter og gebyrer",
+    "Gaver og veldedighet",
     "Annet",
 ]
 
@@ -282,6 +284,30 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("inkasso", "Renter og gebyrer"),
     ("varselgebyr", "Renter og gebyrer"),
     ("minibankgebyr", "Renter og gebyrer"),
+    # Gaver og veldedighet
+    ("røde kors", "Gaver og veldedighet"),
+    ("rode kors", "Gaver og veldedighet"),
+    ("redd barna", "Gaver og veldedighet"),
+    ("kreftforeningen", "Gaver og veldedighet"),
+    ("leger uten grenser", "Gaver og veldedighet"),
+    ("unicef", "Gaver og veldedighet"),
+    ("plan norge", "Gaver og veldedighet"),
+    ("plan international", "Gaver og veldedighet"),
+    ("kirkens nødhjelp", "Gaver og veldedighet"),
+    ("kirkens nodhjelp", "Gaver og veldedighet"),
+    ("frelsesarmeen", "Gaver og veldedighet"),
+    ("sos-barnebyer", "Gaver og veldedighet"),
+    ("sos barnebyer", "Gaver og veldedighet"),
+    ("norsk folkehjelp", "Gaver og veldedighet"),
+    ("flyktninghjelpen", "Gaver og veldedighet"),
+    ("regnskogfondet", "Gaver og veldedighet"),
+    ("blindeforbundet", "Gaver og veldedighet"),
+    ("dyrebeskyttelsen", "Gaver og veldedighet"),
+    ("amnesty", "Gaver og veldedighet"),
+    ("strømmestiftelsen", "Gaver og veldedighet"),
+    ("strommestiftelsen", "Gaver og veldedighet"),
+    ("interflora", "Gaver og veldedighet"),
+    ("gavekort", "Gaver og veldedighet"),
     # Annet
     ("vinmonopolet", "Annet"),
     # Overføringer mellom egne kontoer / Vipps
