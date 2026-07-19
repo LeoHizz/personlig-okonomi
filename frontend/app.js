@@ -1084,10 +1084,7 @@ function loanRow(l = {}) {
       <div class="field" style="margin:8px 0 0"><label>Restgjeld i dag (kr)</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
     </div>
 
-    <div class="grid3" style="margin-top:8px">
-      <div class="field" style="margin:0"><label>Opprinnelig lån (kr) – for «% nedbetalt»</label><input data-f="original" type="number" value="${esc(l.original ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Notat</label><input data-f="note" value="${esc(l.note || "")}"></div>
-    </div>
+    <div class="field" style="margin-top:8px"><label>Notat</label><input data-f="note" value="${esc(l.note || "")}"></div>
     <button class="row-del" onclick="this.closest('.loan-row').remove()">Fjern</button>
   </div>`;
 }
