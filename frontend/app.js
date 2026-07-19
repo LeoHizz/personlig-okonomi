@@ -1025,8 +1025,8 @@ async function openSettings(tab) {
 
 function renderSettings(tab) {
   const s = settingsCache;
-  const tabs = ["generelt", "budsjett", "kontoer", "regler", "merkelapper", "eiendeler", "lan"];
-  const labels = { generelt: "Generelt", budsjett: "Budsjett", kontoer: "Kontoer", regler: "Regler", merkelapper: "Merkelapper", eiendeler: "Eiendeler", lan: "Lån" };
+  const tabs = ["generelt", "budsjett", "kontoer", "regler", "merkelapper", "eiendeler", "lan", "likviditet"];
+  const labels = { generelt: "Generelt", budsjett: "Budsjett", kontoer: "Kontoer", regler: "Regler", merkelapper: "Merkelapper", eiendeler: "Eiendeler", lan: "Lån", likviditet: "Likviditet" };
   const tabBar = tabs.map((t) => `<div class="tab ${t === tab ? "active" : ""}" onclick="renderSettings('${t}')">${labels[t]}</div>`).join("");
 
   let body = "";
@@ -1114,6 +1114,18 @@ function renderSettings(tab) {
   } else if (tab === "lan") {
     body = `<div id="loanRows">${(s.manual_liabilities || []).map(loanRow).join("")}</div>
       <button class="small-add" onclick="addLoan()">+ Legg til lån</button>`;
+  } else if (tab === "likviditet") {
+    const hist = s.liquidity_history || [];
+    const rows = hist.length
+      ? hist.map((h) => `<div class="sel-item"><span>${esc(h.date)}</span><span style="display:inline-flex;gap:12px;align-items:center"><b>${numFmt(h.net)} kr</b><button class="row-del" onclick="delLiqPoint('${esc(h.date)}')" title="Slett">✕</button></span></div>`).join("")
+      : '<div class="muted" style="font-size:12.5px">Ingen punkter enda. Appen lagrer ett automatisk hver dag – legg gjerne inn noen historiske tall du kjenner.</div>';
+    body = `<div class="sub" style="margin-bottom:10px">Netto likviditet (disponibelt − kortgjeld) kan ikke rekonstrueres pålitelig bakover, så grafen bygges fra faktiske målinger. Appen lagrer ett punkt automatisk hver dag. Vil du ha historikk med en gang, legg inn netto-tall du kjenner fra før (f.eks. fra nettbanken ved månedsslutt).</div>
+      <div class="sel-items" style="margin-bottom:12px">${rows}</div>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>Måned</label><input id="liqDate" type="month"></div>
+        <div class="field" style="margin:0"><label>Netto likviditet (kr)</label><input id="liqNet" type="number" inputmode="decimal" placeholder="f.eks. 22000"></div>
+        <button class="small-add" onclick="addLiqPoint()">+ Legg til</button>
+      </div>`;
   }
 
   $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
@@ -1199,6 +1211,25 @@ function addCustomLabel() {
   document.getElementById("customLabelChips").insertAdjacentHTML("beforeend", customLabelChip(v));
   inp.value = "";
   inp.focus();
+}
+async function addLiqPoint() {
+  const date = (document.getElementById("liqDate").value || "").trim();
+  const net = (document.getElementById("liqNet").value || "").trim();
+  if (!date || net === "") { toast("Fyll inn måned og beløp"); return; }
+  try {
+    await api.post("/api/liquidity-snapshot", { date, net });
+    toast("Lagt til ✓");
+    await loadDashboard();
+    openSettings("likviditet");
+  } catch (e) { toast("Kunne ikke lagre punktet"); }
+}
+async function delLiqPoint(date) {
+  try {
+    await api.post("/api/liquidity-snapshot/delete", { date });
+    toast("Slettet");
+    await loadDashboard();
+    openSettings("likviditet");
+  } catch (e) { toast("Kunne ikke slette"); }
 }
 async function refreshAccount(id) {
   toast("Henter saldo og transaksjoner …");
@@ -1337,7 +1368,7 @@ function monthShort(label) {
 // eksponer funksjoner brukt i inline onclick
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
-  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
+  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,

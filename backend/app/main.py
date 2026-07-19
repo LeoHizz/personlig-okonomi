@@ -291,6 +291,38 @@ def do_sync(force: bool = False):
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
 
 
+# --- likviditet-historikk (manuelle øyeblikksbilder brukeren kjenner) ---
+
+@app.post("/api/liquidity-snapshot")
+async def add_liquidity_snapshot(request: Request):
+    body = await request.json()
+    d = (body.get("date") or "").strip()
+    if len(d) == 7:
+        d += "-01"
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        return JSONResponse({"error": "ugyldig dato"}, status_code=400)
+    try:
+        net = float(str(body.get("net", "")).replace(" ", "").replace(",", "."))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "ugyldig beløp"}, status_code=400)
+    # Manuelt punkt: vi kjenner kun netto -> lagres som netto (ingen kort-oppdeling).
+    db.execute(
+        "INSERT INTO liquidity_snapshots(date, cash, debt, net) VALUES(?,?,?,?) "
+        "ON CONFLICT(date) DO UPDATE SET cash=excluded.cash, debt=excluded.debt, net=excluded.net",
+        (d, net, 0.0, net),
+    )
+    return {"ok": True}
+
+
+@app.post("/api/liquidity-snapshot/delete")
+async def del_liquidity_snapshot(request: Request):
+    body = await request.json()
+    db.execute("DELETE FROM liquidity_snapshots WHERE date = ?", ((body.get("date") or "").strip(),))
+    return {"ok": True}
+
+
 # --- innstillinger ---
 
 @app.get("/api/settings")
@@ -307,6 +339,8 @@ def get_settings():
         "labels": labels.all_labels(),
         "categories": categorize.CATEGORY_ORDER,
         "accounts": _accounts_with_balance(),
+        "liquidity_history": [dict(r) for r in db.query(
+            "SELECT date, net FROM liquidity_snapshots ORDER BY date DESC")],
     }
 
 
