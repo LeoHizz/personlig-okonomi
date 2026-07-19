@@ -11,6 +11,7 @@ CATEGORY_COLORS: dict[str, str] = {
     "Kommunale avgifter": "#3d6b7a",
     "Dagligvarer": "#2f7a5e",
     "Barn": "#4a6a86",
+    "Kjæledyr": "#9a8c5e",
     "Forsikring": "#8a7bb0",
     "Transport": "#5d8fb8",
     "Fritid": "#8fb4a3",
@@ -31,13 +32,14 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 4
+RULES_VERSION = 5
 
 CATEGORY_ORDER = [
     "Bolig og lån",
     "Kommunale avgifter",
     "Dagligvarer",
     "Barn",
+    "Kjæledyr",
     "Forsikring",
     "Transport",
     "Fritid",
@@ -284,6 +286,25 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("inkasso", "Renter og gebyrer"),
     ("varselgebyr", "Renter og gebyrer"),
     ("minibankgebyr", "Renter og gebyrer"),
+    # Kjæledyr
+    ("veterinær", "Kjæledyr"),
+    ("veterinar", "Kjæledyr"),
+    ("dyrlege", "Kjæledyr"),
+    ("dyreklinikk", "Kjæledyr"),
+    ("smådyrklinikk", "Kjæledyr"),
+    ("smadyrklinikk", "Kjæledyr"),
+    ("dyrebutikk", "Kjæledyr"),
+    ("dyrehjørnet", "Kjæledyr"),
+    ("dyrehjornet", "Kjæledyr"),
+    ("dyrekassen", "Kjæledyr"),
+    ("musti", "Kjæledyr"),
+    ("mirri", "Kjæledyr"),
+    ("zoobutikk", "Kjæledyr"),
+    ("kjæledyr", "Kjæledyr"),
+    ("kjaledyr", "Kjæledyr"),
+    ("hundemat", "Kjæledyr"),
+    ("kattemat", "Kjæledyr"),
+    ("vom og hundemat", "Kjæledyr"),
     # Gaver og veldedighet
     ("røde kors", "Gaver og veldedighet"),
     ("rode kors", "Gaver og veldedighet"),
