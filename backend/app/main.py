@@ -250,10 +250,13 @@ def callback(request: Request):
     except gc.Error:
         return RedirectResponse(url="/?connect=error&msg=api")
     if ids:
-        try:
-            sync.sync_all(force=True)
-        except gc.Error:
-            pass
+        # Synk KUN de nytilkoblede kontoene – aldri de andre. En ny tilkobling
+        # skal ikke røre eksisterende kontoer (unngår at de mister saldo/data).
+        for aid in ids:
+            try:
+                sync.sync_account(aid, force=True)
+            except gc.Error:
+                pass
         return RedirectResponse(url="/?connect=ok")
     return RedirectResponse(url="/?connect=pending")
 

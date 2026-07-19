@@ -39,6 +39,10 @@ def _bank_code(institution_name: str, institution_id: str) -> str:
 
 
 def _save_balances(account_id: str, balances: list[dict]) -> None:
+    # Aldri slett eksisterende saldo på et tomt svar (feil/ratebegrensning/utilgjengelig
+    # i ny økt) – da ville en mislykket synk «tømme» en konto som egentlig er i orden.
+    if not balances:
+        return
     db.execute("DELETE FROM balances WHERE account_id = ?", (account_id,))
     for b in balances:
         db.execute(
