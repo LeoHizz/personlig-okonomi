@@ -176,8 +176,7 @@ function renderDashboard() {
     <div class="main-grid">
       ${categoryCard(d)}
       <div class="right-col">
-        ${liquidityCard(d)}
-        ${cashflowCard(d)}
+        ${moneyCard(d)}
         <div class="two">
           ${accountsCard(d)}
           ${loansCard(d)}
@@ -324,106 +323,88 @@ function categoryCard(d) {
   </div>`;
 }
 
-function liquidityCard(d) {
+function moneyCard(d) {
   const L = d.liquidity;
   if (!L) return "";
-  const scaleUp = Math.max(1, L.maxCash);
-  const scaleDown = Math.max(0, -(L.minNet || 0));
-  const zeroPct = (scaleUp / (scaleUp + scaleDown)) * 100; // % fra topp der 0 er
+  const T = d.trend || [];
   const hasDebt = L.hasCardDebt;
-  const cols = L.points
-    .map((p) => {
-      if (!p.has) return `<div class="liq-col liq-empty" title="${esc(p.label)}: ingen måling"></div>`;
-      const cashTop = zeroPct * (1 - Math.min(1, p.cash / scaleUp)); // topp av stolpen (kontanter)
-      const netY = p.net >= 0
-        ? zeroPct * (1 - Math.min(1, p.net / scaleUp))
-        : zeroPct + (100 - zeroPct) * Math.min(1, -p.net / (scaleDown || 1));
-      const greenTop = Math.min(netY, zeroPct);
-      const greenH = Math.max(0, zeroPct - greenTop);   // egne midler (netto), kun når netto > 0
-      const redH = Math.max(0, netY - cashTop);          // lånt kapital (kortgjeld)
-      const gCol = p.current ? "var(--navy)" : "var(--green)";
-      const green = greenH > 0.3 ? `<div class="liq-seg" style="top:${greenTop}%;height:${greenH}%;background:${gCol}"></div>` : "";
-      const red = (hasDebt && redH > 0.3) ? `<div class="liq-seg" style="top:${cashTop}%;height:${redH}%;background:var(--amber-bright);opacity:${p.current ? "1" : "0.82"}"></div>` : "";
-      const soloBar = !hasDebt ? `<div class="liq-seg" style="top:${greenTop}%;height:${Math.max(0.3, zeroPct - greenTop)}%;background:${gCol};opacity:${p.current ? "1" : "0.8"}"></div>` : "";
-      return `<div class="liq-col" title="${esc(p.label)}: netto ${numFmt(p.net)}${hasDebt ? " · kort −" + numFmt(-p.debt) : ""}">${hasDebt ? green + red : soloBar}</div>`;
-    })
-    .join("");
-  const labels = L.points
-    .map((p) => `<div ${p.current ? 'style="font-weight:700;color:var(--navy)"' : ""}>${esc(p.label)}</div>`)
-    .join("");
-  const chColor = L.up ? "var(--green)" : "var(--amber)";
+
+  // --- kombinert SVG-graf: stolper = sparing/mnd (flyt), linje = netto likviditet (nivå) ---
+  const W = 680, H = 172, padL = 6, padR = 6, padT = 12, padB = 22;
+  const n = Math.max(1, T.length);
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const colW = plotW / n;
+  const xAt = (i) => padL + colW * i + colW / 2;
+
+  const maxFlow = Math.max(1, ...T.map((t) => Math.abs(t.flow)));
+  const flowZeroFrac = 0.60;                       // stolpenes 0-linje 60 % ned
+  const yFlowZero = padT + plotH * flowZeroFrac;
+  const upSpace = yFlowZero - padT, downSpace = padT + plotH - yFlowZero;
+
+  const bars = T.map((t, i) => {
+    const bw = Math.min(24, colW * 0.5);
+    let y, h;
+    if (t.flow >= 0) { h = (t.flow / maxFlow) * upSpace; y = yFlowZero - h; }
+    else { h = (Math.abs(t.flow) / maxFlow) * downSpace; y = yFlowZero; }
+    const color = t.flow < 0 ? "var(--amber-bright)" : "var(--green)";
+    return `<rect x="${(xAt(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${color}" opacity="${t.current ? 1 : 0.8}"><title>${esc(t.label)}: sparing ${numFmt(t.flow)}</title></rect>`;
+  }).join("");
+
+  const showLine = !L.filtered;
+  const liqPts = T.map((t, i) => ({ i, v: t.liq })).filter((p) => p.v != null);
+  let liqLine = "", liqDots = "";
+  if (showLine && liqPts.length) {
+    const vs = liqPts.map((p) => p.v);
+    const lo = Math.min(0, ...vs), hi = Math.max(1, ...vs);
+    const yLiq = (v) => padT + plotH - ((v - lo) / ((hi - lo) || 1)) * plotH;
+    const pts = liqPts.map((p) => `${xAt(p.i).toFixed(1)},${yLiq(p.v).toFixed(1)}`).join(" ");
+    if (liqPts.length > 1) liqLine = `<polyline fill="none" stroke="var(--navy)" stroke-width="2.5" points="${pts}"/>`;
+    liqDots = liqPts.map((p) => `<circle cx="${xAt(p.i).toFixed(1)}" cy="${yLiq(p.v).toFixed(1)}" r="3.5" fill="var(--navy)"><title>${esc(T[p.i].label)}: netto likviditet ${numFmt(p.v)}</title></circle>`).join("");
+  }
+
+  const zeroLine = `<line x1="${padL}" y1="${yFlowZero.toFixed(1)}" x2="${W - padR}" y2="${yFlowZero.toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>`;
+  const xlabels = T.map((t, i) => `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${t.current ? "var(--navy)" : "var(--muted)"}" ${t.current ? 'font-weight="700"' : ""}>${esc(t.label)}</text>`).join("");
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;height:auto;margin-top:12px">${zeroLine}${bars}${liqLine}${liqDots}${xlabels}</svg>`;
+
+  // --- topptekst: netto likviditet + spart hittil i år ---
   const breakdown = hasDebt
     ? `<div class="liq-break">på konto ${L.cashFmt} − kortgjeld ${L.cardDebtFmt}</div>`
     : `<div class="liq-break">på konto ${L.cashFmt} kr</div>`;
-  const legend = hasDebt
-    ? `<div class="liq-legend"><span><i style="background:var(--green)"></i>Egne midler</span><span><i style="background:var(--amber-bright)"></i>Lånt (kort)</span></div>`
-    : "";
-  const change = L.change3mFmt
-    ? `<div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>`
-    : "";
-  const buffer = L.hasCreditInfo
-    ? `<div class="liq-buffer">💳 Kredittkort: <b>benyttet ${L.cardDebtFmt}</b> · ledig <b>${L.creditAvailableFmt}</b> kr <span class="muted">(nødbuffer – tilgjengelig, men gjeld hvis brukt)</span></div>`
-    : "";
-  const buildingNote = !L.hasHistory
-    ? `<div class="liq-note">Historikk bygges opp fra nå – ett øyeblikksbilde per dag (auto-synk kl. 05). Kurven fylles ut de neste ukene.</div>`
-    : "";
-  // Personfilter: tallet er filtrert korrekt, men trend-grafen er husholdnings-total
-  // (vi lagrer ikke per-person-historikk), så den skjules for å unngå misvisning.
-  const graph = L.filtered
-    ? `<div class="liq-note">Trend vises for hele husholdningen – fjern personfilteret for å se kurven.</div>`
-    : `<div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
-       <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
-       ${legend}
-       ${buildingNote}`;
-  return `<div class="card">
-    <div class="cf-head">
-      <div>
-        <div class="card-title">Netto likviditet</div>
-        <div class="liq-now">${L.currentFmt} kr</div>
-        ${breakdown}
-      </div>
-      ${L.filtered ? "" : change}
-    </div>
-    ${graph}
-    ${buffer}
-  </div>`;
-}
-
-function cashflowCard(d) {
-  const cf = d.cashflow;
-  const maxAbs = Math.max(1, ...cf.map((c) => Math.abs(c.net)));
-  const cols = cf
-    .map((c) => {
-      const h = Math.max(3, Math.round((Math.abs(c.net) / maxAbs) * 100));
-      const color = c.current ? "var(--navy)" : c.net < 0 ? "var(--amber-bright)" : "var(--green)";
-      const bar = `<div class="cf2-bar" style="height:${h}%;background:${color};opacity:${c.current ? "1" : "0.9"}"></div>`;
-      return `<div class="cf2-col">
-        <div class="cf2-top">${c.net >= 0 ? bar : ""}</div>
-        <div class="cf2-bot">${c.net < 0 ? bar : ""}</div>
-      </div>`;
-    })
-    .join("");
-  const labels = cf
-    .map((c) => {
-      const sign = c.netK >= 0 ? "+" : "−";
-      const cls = c.current ? 'style="font-weight:700;color:var(--navy)"' : c.net < 0 ? 'style="color:var(--amber)"' : 'style="color:var(--green)"';
-      return `<div ${cls}>${c.label} ${sign}${Math.abs(c.netK)}k</div>`;
-    })
-    .join("");
   const ytdNeg = d.ytdNet.startsWith("-");
   const ytdVal = ytdNeg ? d.ytdNet.slice(1) : d.ytdNet;
   const ytdColor = ytdNeg ? "var(--amber)" : "var(--green)";
+  const year = esc((d.monthLabel || "").split(" ").pop() || "");
+
+  const legend = `<div class="liq-legend">
+      <span><i style="background:var(--green)"></i>Sparing/mnd</span>
+      <span><i style="background:var(--amber-bright)"></i>Underskudd</span>
+      ${showLine ? `<span><i style="background:var(--navy);height:3px;border-radius:2px"></i>Netto likviditet</span>` : ""}
+    </div>`;
+  const buffer = L.hasCreditInfo
+    ? `<div class="liq-buffer">💳 Kredittkort: <b>benyttet ${L.cardDebtFmt}</b> · ledig <b>${L.creditAvailableFmt}</b> kr <span class="muted">(nødbuffer – tilgjengelig, men gjeld hvis brukt)</span></div>`
+    : "";
+  const note = L.filtered
+    ? `<div class="liq-note">Likviditets-linja vises for hele husholdningen – fjern personfilteret for å se den. Stolpene (sparing) er filtrert.</div>`
+    : (!L.hasHistory
+      ? `<div class="liq-note">Likviditets-linja bygges opp fra nå – ett øyeblikksbilde per dag. Legg inn historiske punkter i Innstillinger → Likviditet for å fylle den raskere.</div>`
+      : "");
+
   return `<div class="card">
-    <div class="cf-head">
+    <div class="cf-head" style="align-items:flex-start">
       <div>
-        <div class="card-title">Cashflow — spart per måned</div>
-        <div class="liq-now" style="color:${ytdColor}">${ytdNeg ? "−" : "+"}${ytdVal} kr</div>
-        <div class="liq-break">spart hittil i år (${esc((d.monthLabel || "").split(" ").pop() || "")})</div>
+        <div class="card-title">Likviditet & sparing</div>
+        <div class="liq-now">${L.currentFmt} kr</div>
+        ${breakdown}
       </div>
-      <div class="cf-sub muted">${cf.length} siste mnd</div>
+      <div style="text-align:right">
+        <div class="cf-sub muted">spart hittil i år ${year}</div>
+        <div style="font-size:19px;font-weight:800;color:${ytdColor}">${ytdNeg ? "−" : "+"}${ytdVal} kr</div>
+      </div>
     </div>
-    <div class="cf2-wrap"><div class="cf2-zero"></div><div class="cf2">${cols}</div></div>
-    <div class="cf-labels">${labels}</div>
+    ${svg}
+    ${legend}
+    ${buffer}
+    ${note}
   </div>`;
 }
 

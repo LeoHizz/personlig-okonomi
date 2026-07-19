@@ -432,6 +432,21 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         inc, spend = _income_spending(_month_transactions(f"{yr:04d}-{mm:02d}", persons))
         ytd_net += inc - spend
 
+    # Kombinert trend (12 mnd, forankret til i dag): sparing (flyt, stolper) +
+    # netto likviditet (nivå, linje – kun der vi har øyeblikksbilde).
+    snap_by_month = {p["month"]: p for p in liq_points}
+    trend = []
+    for m in _prev_months(now_month, 12):
+        inc, spend = _income_spending(_month_transactions(m, persons))
+        p = snap_by_month.get(m)
+        trend.append({
+            "label": _month_label(m).split()[0][:3],
+            "month": m,
+            "flow": round(inc - spend),
+            "liq": (p["net"] if (p and p["has"]) else None),
+            "current": m == now_month,
+        })
+
     # --- budsjett totalt ---
     total_budget = sum(budgets.values()) if budgets else 0
     variable_expense = total_expense - fixed_expense
@@ -471,6 +486,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "loans": loans,
         "liquidity": liquidity,
         "cashflow": cashflow,
+        "trend": trend,
         "ytdNet": _fmt(ytd_net),
         "budget": {
             "total": total_budget,
