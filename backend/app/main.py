@@ -398,6 +398,22 @@ def dedupe_accounts():
     return {"deleted": deleted}
 
 
+@app.post("/api/accounts-reset")
+def reset_bank_accounts():
+    """Nystart: slett ALLE bank-synkede kontoer + deres transaksjoner, saldo og
+    samtykker. Beholder CSV-import (f.eks. Coop) og demo. Deretter kobler man til
+    bankene på nytt for et rent oppsett."""
+    ids = [r["id"] for r in db.query(
+        "SELECT id FROM accounts WHERE institution_id NOT IN ('csv-import','demo')"
+    )]
+    for aid in ids:
+        db.execute("DELETE FROM transactions WHERE account_id = ?", (aid,))
+        db.execute("DELETE FROM balances WHERE account_id = ?", (aid,))
+        db.execute("DELETE FROM accounts WHERE id = ?", (aid,))
+    db.execute("DELETE FROM requisitions")
+    return {"deleted": len(ids)}
+
+
 @app.post("/api/transactions/{tx_id}/category")
 async def set_category(tx_id: str, request: Request):
     body = await request.json()

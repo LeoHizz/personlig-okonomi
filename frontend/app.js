@@ -991,6 +991,7 @@ function renderSettings(tab) {
     const toolbar = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <button class="chip-btn" onclick="refreshAllAccounts()">↻ Hent alle fra bank</button>
       ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Fjern duplikater (slett)</button>` : ""}
+      <button class="chip-btn" style="margin-left:auto;border-color:#e0a3a3;color:#b5546a" onclick="resetBankAccounts()">⚠ Nullstill bankkontoer</button>
     </div>`;
     body = toolbar + (s.accounts.length
       ? s.accounts
@@ -1119,6 +1120,17 @@ async function refreshAllAccounts() {
     toast("Kunne ikke hente fra bank");
   }
 }
+async function resetBankAccounts() {
+  if (!confirm("NULLSTILLE alle bankkontoer?\n\nSletter ALLE tilkoblede bankkontoer + transaksjoner og saldo. Coop-CSV beholdes. Deretter kobler du bankene til på nytt.\n\nDette kan ikke angres.")) return;
+  try {
+    const r = await api.post("/api/accounts-reset", {});
+    toast(`Nullstilt: ${r.deleted} kontoer slettet. Koble til bankene på nytt.`);
+    await loadDashboard();
+    openSettings("kontoer");
+  } catch (e) {
+    toast("Kunne ikke nullstille");
+  }
+}
 async function dedupeAccounts() {
   if (!confirm("Slette duplikat-kontoer permanent?\n\nDen beste kopien (med saldo) beholdes. Gyldige kontoer med eget kontonummer røres ikke.")) return;
   try {
@@ -1213,7 +1225,7 @@ Object.assign(window, {
   addAsset, addLoan, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
-  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, openMerchant,
+  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,
 });
 
 init();
