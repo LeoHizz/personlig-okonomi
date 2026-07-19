@@ -478,15 +478,20 @@ async def set_category(tx_id: str, request: Request):
 async def set_label(tx_id: str, request: Request):
     body = await request.json()
     lab = (body.get("label") or "").strip()
-    row = db.query("SELECT counterparty FROM transactions WHERE id = ?", (tx_id,))
+    row = db.query("SELECT counterparty, remittance FROM transactions WHERE id = ?", (tx_id,))
     if not lab or not row:
         return JSONResponse({"error": "label eller transaksjon mangler"}, status_code=400)
+    cp = row[0]["counterparty"]
+    rem = row[0]["remittance"]
+    # Mange kortkjøp har tom counterparty (butikknavnet ligger i remittance) –
+    # fall tilbake på remittance så regelen faktisk lages og labels_for matcher.
+    source = cp if (cp or "").strip() else rem
     # Å merke en transaksjon lager/fjerner en label-regel for samme sted.
     if body.get("remove"):
-        labels.remove_label_rule(row[0]["counterparty"], lab)
+        labels.remove_label_rule(source, lab)
     else:
-        labels.learn_label_rule(row[0]["counterparty"], lab)
-    return {"ok": True, "labels": labels.labels_for(row[0]["counterparty"], "")}
+        labels.learn_label_rule(source, lab)
+    return {"ok": True, "labels": labels.labels_for(cp, rem)}
 
 
 # --- frontend ---
