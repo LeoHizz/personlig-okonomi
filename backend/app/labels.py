@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from . import db
 
-DEFAULT_LABELS = ["Hytte", "Hjemme", "Ferie"]
+DEFAULT_LABELS = ["Hytte", "Hjemme", "Ferie", "Jobb"]
 
 
 def label_rules() -> list[dict]:

@@ -214,6 +214,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     asset_sum = 0.0
     for a in acc_rows:
         bal = account_current_balance(a["id"])
+        has_bal = bool(db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],)))
         if a["is_asset"]:
             asset_sum += bal
         accounts.append(
@@ -223,7 +224,8 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
                 "bank_code": a["bank_code"] or "",
                 "owner": a["owner"] or "",
                 "amount": round(bal),
-                "amountFmt": _fmt(bal),
+                "amountFmt": _fmt(bal) if has_bal else "—",
+                "hasBalance": has_bal,
                 "is_asset": bool(a["is_asset"]),
             }
         )
@@ -239,6 +241,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
                 "owner": x.get("owner", ""),
                 "amount": round(float(x.get("value", 0))),
                 "amountFmt": _fmt(float(x.get("value", 0))),
+                "hasBalance": True,
                 "is_asset": True,
                 "note": x.get("note", ""),
                 "manual": True,

@@ -382,9 +382,8 @@ function cashflowCard(d) {
 
 function accountsCard(d) {
   const rows = d.accounts
-    .filter((a) => a.is_asset)
     .map(
-      (a) => `<div class="acc-row"><span>${esc(a.name)} <span class="acc-tag">${esc(a.bank_code)}</span></span><span class="acc-val">${a.amountFmt}</span></div>`
+      (a) => `<div class="acc-row"><span>${esc(a.name)} <span class="acc-tag">${esc(a.bank_code)}</span></span><span class="acc-val">${esc(a.amountFmt)}</span></div>`
     )
     .join("");
   return `<div class="card">
