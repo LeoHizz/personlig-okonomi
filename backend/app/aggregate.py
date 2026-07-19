@@ -229,12 +229,15 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
             "SELECT * FROM accounts WHERE hidden = 0 ORDER BY sort_order, name"
         )
     accounts = []
-    asset_sum = 0.0
+    asset_sum = 0.0      # teller i netto formue (inkl. kredittkort-gjeld som negativ)
+    liquid_sum = 0.0     # disponibel likviditet – kredittkort holdes UTENFOR
     for a in acc_rows:
         bal = account_current_balance(a["id"])
         has_bal = bool(db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],)))
         if a["is_asset"]:
             asset_sum += bal
+            if not a["is_credit"]:
+                liquid_sum += bal
         accounts.append(
             {
                 "id": a["id"],
@@ -269,8 +272,8 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     # --- likviditet (disponibelt) + utvikling ---
     # Disponibelt = sum av tilkoblede bankkontoers saldo (is_asset). Utviklingen
     # rekonstrueres bakover fra dagens saldo + transaksjonene på disse kontoene.
-    liquid_ids = [a["id"] for a in acc_rows if a["is_asset"]]
-    current_liquid = asset_sum
+    liquid_ids = [a["id"] for a in acc_rows if a["is_asset"] and not a["is_credit"]]
+    current_liquid = liquid_sum
     net_by_month: dict[str, float] = {}
     if liquid_ids:
         ph = ",".join("?" for _ in liquid_ids)

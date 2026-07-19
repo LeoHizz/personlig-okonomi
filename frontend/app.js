@@ -759,9 +759,9 @@ async function renderAnalysis() {
         ${cmpRows || '<div class="muted" style="font-size:12.5px">Ingen forbruk registrert.</div>'}
       </div>
       <div class="right-col">
-        <div class="card"><div class="card-title">Toppbutikker denne måneden</div><div style="margin-top:10px">${merchRows}</div></div>
-        <div class="card"><div class="card-title">Største enkeltkjøp</div><div style="margin-top:10px">${bigRows}</div></div>
-        <div class="card"><div class="card-title">Gjentakende kjøp (faste utgifter)</div><div style="margin-top:10px">${recRows}</div></div>
+        <div class="card"><div class="card-title">Toppbutikker denne måneden</div><div class="sel-items">${merchRows}</div></div>
+        <div class="card"><div class="card-title">Største enkeltkjøp</div><div class="sel-items">${bigRows}</div></div>
+        <div class="card"><div class="card-title">Gjentakende kjøp (faste utgifter)</div><div class="sel-items">${recRows}</div></div>
       </div>
     </div>
     ${trendCard}
