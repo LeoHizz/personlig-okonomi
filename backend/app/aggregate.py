@@ -744,18 +744,23 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
     if label and label != "Alle":
         txs = [t for t in txs if label in labelmod.labels_for_row(t)]
 
-    expenses = [t for t in txs if t["amount"] < 0]
-    total = sum(-t["amount"] for t in expenses)
-    count = len(expenses)
+    # Et sted er enten en utgift eller en inntektskilde. Velg dominerende retning
+    # så inntektssteder (f.eks. ADYEN, lønn, refusjoner) ikke får tom graf/snitt.
+    pos_sum = sum(t["amount"] for t in txs if t["amount"] > 0)
+    neg_sum = sum(-t["amount"] for t in txs if t["amount"] < 0)
+    income_mode = pos_sum > neg_sum
+    relevant = [t for t in txs if (t["amount"] > 0) == income_mode and t["amount"] != 0]
+    total = sum(abs(t["amount"]) for t in relevant)
+    count = len(relevant)
     cat_count: dict[str, int] = defaultdict(int)
-    for t in expenses:
+    for t in relevant:
         cat_count[t["category"]] += 1
     category = max(cat_count, key=cat_count.get) if cat_count else (txs[0]["category"] if txs else "")
 
     months = _prev_months(current_month(), 12)
     by_month: dict[str, float] = defaultdict(float)
-    for t in expenses:
-        by_month[(t["booking_date"] or "")[:7]] += -t["amount"]
+    for t in relevant:
+        by_month[(t["booking_date"] or "")[:7]] += abs(t["amount"])
     series = [
         {"month": m, "label": _month_label(m).split()[0][:3], "amount": round(by_month.get(m, 0.0))}
         for m in months
@@ -771,6 +776,9 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
     ]
     return {
         "name": name, "category": category,
+        "income": income_mode,
+        "flowLabel": "Inntekt" if income_mode else "Kostnad",
+        "unit": "innslag" if income_mode else "kjøp",
         "totalFmt": _fmt(total), "count": count,
         "avgFmt": _fmt(total / count) if count else "0",
         "monthlyAvgFmt": _fmt(total / len(active)) if active else "0",

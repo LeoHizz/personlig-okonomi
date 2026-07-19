@@ -874,8 +874,9 @@ async function openMerchant(name) {
     return;
   }
   const mx = Math.max(1, m.max);
+  const barColor = m.income ? "var(--green)" : "var(--navy)";
   const bars = m.series
-    .map((s) => `<div style="height:${Math.max(3, Math.round((s.amount / mx) * 100))}%;background:var(--navy);opacity:${s.amount ? "1" : "0.2"}" title="${esc(s.label)}: ${s.amount}"></div>`)
+    .map((s) => `<div style="height:${Math.max(3, Math.round((s.amount / mx) * 100))}%;background:${barColor};opacity:${s.amount ? "1" : "0.2"}" title="${esc(s.label)}: ${s.amount}"></div>`)
     .join("");
   const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
   const recent = m.recent
@@ -885,8 +886,8 @@ async function openMerchant(name) {
     <div class="modal">
       <button class="modal-close" onclick="closeModal()">✕</button>
       <h2>${esc(m.name)}</h2>
-      <div class="sub">${esc(m.category)} · ${m.count} kjøp · totalt ${m.totalFmt} kr · snitt ${m.avgFmt} kr/kjøp</div>
-      <div class="cf-head" style="margin-top:16px"><div class="card-title">Kostnad per måned</div><div class="cf-sub">${m.monthlyAvgFmt} kr/mnd i snitt</div></div>
+      <div class="sub">${esc(m.category)} · ${m.count} ${esc(m.unit || "kjøp")} · totalt ${m.totalFmt} kr · snitt ${m.avgFmt} kr/${esc(m.unit === "innslag" ? "innslag" : "kjøp")}</div>
+      <div class="cf-head" style="margin-top:16px"><div class="card-title">${esc(m.flowLabel || "Kostnad")} per måned</div><div class="cf-sub">${m.monthlyAvgFmt} kr/mnd i snitt</div></div>
       <div class="cf-bars" style="gap:6px;margin-top:10px">${bars}</div>
       <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
       <div style="margin-top:18px"><div class="card-title">Siste kjøp</div><div style="margin-top:8px">${recent}</div></div>
