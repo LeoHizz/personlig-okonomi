@@ -67,7 +67,9 @@ def account_current_balance(account_id: str) -> float:
     if not rows:
         return 0.0
     by_type = {r["balance_type"]: r["amount"] for r in rows}
-    for pref in ("closing", "available", "expected", "opening", "other"):
+    # Disponibelt (available) er det som stemmer med nettbanken – bokført (closing)
+    # kan avvike fordi reserverte/ikke-bokførte poster ikke er trukket fra ennå.
+    for pref in ("available", "closing", "expected", "opening", "other"):
         if pref in by_type:
             return by_type[pref]
     return rows[0]["amount"]
