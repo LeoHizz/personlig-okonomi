@@ -353,8 +353,8 @@ function liquidityCard(d) {
     .join("");
   const chColor = L.up ? "var(--green)" : "var(--amber)";
   const breakdown = hasDebt
-    ? `<div class="liq-break">disponibelt ${L.cashFmt} − kortgjeld ${L.cardDebtFmt}</div>`
-    : "";
+    ? `<div class="liq-break">på konto ${L.cashFmt} − kortgjeld ${L.cardDebtFmt}</div>`
+    : `<div class="liq-break">på konto ${L.cashFmt} kr</div>`;
   const legend = hasDebt
     ? `<div class="liq-legend"><span><i style="background:var(--green)"></i>Egne midler</span><span><i style="background:var(--amber-bright)"></i>Lånt (kort)</span></div>`
     : "";
@@ -367,20 +367,25 @@ function liquidityCard(d) {
   const buildingNote = !L.hasHistory
     ? `<div class="liq-note">Historikk bygges opp fra nå – ett øyeblikksbilde per dag (auto-synk kl. 05). Kurven fylles ut de neste ukene.</div>`
     : "";
+  // Personfilter: tallet er filtrert korrekt, men trend-grafen er husholdnings-total
+  // (vi lagrer ikke per-person-historikk), så den skjules for å unngå misvisning.
+  const graph = L.filtered
+    ? `<div class="liq-note">Trend vises for hele husholdningen – fjern personfilteret for å se kurven.</div>`
+    : `<div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
+       <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
+       ${legend}
+       ${buildingNote}`;
   return `<div class="card">
     <div class="cf-head">
       <div>
-        <div class="card-title">Likviditet — reelt disponibelt</div>
+        <div class="card-title">Netto likviditet</div>
         <div class="liq-now">${L.currentFmt} kr</div>
         ${breakdown}
       </div>
-      ${change}
+      ${L.filtered ? "" : change}
     </div>
-    <div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
-    <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
-    ${legend}
+    ${graph}
     ${buffer}
-    ${buildingNote}
   </div>`;
 }
 

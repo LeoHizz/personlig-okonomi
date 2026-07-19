@@ -342,6 +342,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "hasCardDebt": credit_debt < 0,
         "creditAvailableFmt": _fmt(credit_available),
         "hasCreditInfo": credit_available > 0,
+        "filtered": filtering,   # personfilter aktivt -> skjul husholdnings-trend
         "points": liq_points,
         "hasHistory": len(real) >= 2,
         "maxCash": max(cashes) if cashes else max(1, round(liquid_sum)),
