@@ -293,6 +293,10 @@ def _accounts_with_balance() -> list[dict]:
         a = dict(r)
         has = db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],))
         a["balanceFmt"] = aggregate._fmt(aggregate.account_current_balance(a["id"])) if has else "—"
+        mb = db.query(
+            "SELECT amount FROM balances WHERE account_id = ? AND balance_type = 'manual'", (a["id"],)
+        )
+        a["manualBalance"] = mb[0]["amount"] if mb else None
         out.append(a)
     return out
 
@@ -314,12 +318,28 @@ async def save_settings(request: Request):
 @app.post("/api/accounts/{account_id}")
 async def update_account(account_id: str, request: Request):
     body = await request.json()
+
+    # Manuell saldo (f.eks. «disponibelt» på Coop-kortet som ikke kommer fra bank).
+    # Lagres som egen balanserad av typen 'manual'. Tomt felt = fjern.
+    if "manual_balance" in body:
+        raw = str(body.get("manual_balance", "")).strip().replace(" ", "").replace(",", ".")
+        db.execute("DELETE FROM balances WHERE account_id = ? AND balance_type = 'manual'", (account_id,))
+        if raw not in ("", "-"):
+            try:
+                amt = float(raw)
+                db.execute(
+                    "INSERT OR REPLACE INTO balances(account_id, balance_type, amount, currency, reference_date) "
+                    "VALUES(?,?,?,?,?)",
+                    (account_id, "manual", amt, "NOK", ""),
+                )
+            except ValueError:
+                pass
+
     allowed = {"name", "owner", "bank_code", "is_asset", "hidden", "sort_order"}
     fields = {k: v for k, v in body.items() if k in allowed}
-    if not fields:
-        return JSONResponse({"error": "ingen gyldige felt"}, status_code=400)
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), account_id])
+    if fields:
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), account_id])
     return {"ok": True}
 
 

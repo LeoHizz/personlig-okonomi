@@ -69,7 +69,9 @@ def account_current_balance(account_id: str) -> float:
     by_type = {r["balance_type"]: r["amount"] for r in rows}
     # Disponibelt (available) er det som stemmer med nettbanken – bokført (closing)
     # kan avvike fordi reserverte/ikke-bokførte poster ikke er trukket fra ennå.
-    for pref in ("available", "closing", "expected", "opening", "other"):
+    # Bank-saldo vinner (available/closing …); 'manual' brukes for kontoer uten
+    # bank-saldo (f.eks. Coop-kort via CSV der brukeren fyller inn disponibelt).
+    for pref in ("available", "closing", "expected", "opening", "manual", "other"):
         if pref in by_type:
             return by_type[pref]
     return rows[0]["amount"]
