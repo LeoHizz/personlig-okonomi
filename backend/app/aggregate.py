@@ -296,18 +296,19 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     # ned (låneopptak synes), nedbetaling er nøytralt (flytter penger). Utviklingen
     # rekonstrueres bakover fra dagens netto + transaksjonene på konto OG kort.
     liquid_ids = [a["id"] for a in acc_rows if a["is_asset"] and not a["is_credit"]]
-    credit_ids = [a["id"] for a in acc_rows if a["is_credit"]]
     current_liquid = liquid_sum + credit_debt
-    # To serier: kontanter (positive) og kortgjeld (negativ). Hver stolpe deles i
-    # egne midler (grønt = netto) og lånt kapital (rødt = kortgjeld).
+    # Kontantsiden rekonstrueres pålitelig fra banktransaksjonene (banksaldo er et
+    # løpende regnskap). Kortgjeld kan IKKE rekonstrueres ærlig – kredittkort (særlig
+    # Coop-CSV) mangler et rent løpende saldo-spor (nedbetalinger fanges ikke), så
+    # den holdes konstant på dagens nivå bakover. Grønt = reell utvikling av egne
+    # midler; rødt = dagens kortgjeld som konstant bånd.
     cash_series = _level_series(month, liquid_sum, liquid_ids)
-    debt_series = _level_series(month, credit_debt, credit_ids)
     liq_points = []
-    for (m, cash), (_, debt) in zip(cash_series, debt_series):
-        net = cash + debt
+    for (m, cash) in cash_series:
+        net = cash + credit_debt
         liq_points.append({
             "month": m, "label": _month_label(m).split()[0][:3],
-            "cash": round(cash), "debt": round(debt), "net": round(net),
+            "cash": round(cash), "debt": round(credit_debt), "net": round(net),
             "current": m == month,
         })
     nets = [p["net"] for p in liq_points]
