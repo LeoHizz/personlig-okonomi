@@ -481,16 +481,20 @@ async function renderTransactions() {
       style="font-size:12px;border:1px solid var(--line);border-radius:6px;padding:2px 4px;background:#fff;max-width:100%">${opts}</select>`;
   };
   const descCell = (t) => {
+    const sub = t.sub ? `<span class="tx-sub">${esc(t.sub)}</span>` : "";
+    return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span>${sub}</span>`;
+  };
+  const labelCell = (t) => {
     const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${esc(t.id)}','${esc(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
     const opts = allLabels.map((l) => `<option>${esc(l)}</option>`).join("");
-    const sub = t.sub ? `<span class="tx-sub">${esc(t.sub)}</span>` : "";
-    return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span>${sub}<span class="tx-labels">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span></span>`;
+    return `<span class="tx-labelcell">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span>`;
   };
   const rows = res.rows
     .map(
       (t) => `<div class="tx-grid tx-tr">
         <span class="muted">${esc(t.date)}</span>
         ${descCell(t)}
+        ${labelCell(t)}
         ${catSelect(t)}
         <span class="muted">${esc(t.acct)}</span>
         <span class="muted">${esc(t.person)}</span>
@@ -515,7 +519,7 @@ async function renderTransactions() {
     </div>
     ${labelFilter ? `<div class="chips">${labelFilter}</div>` : ""}
     <div class="tx-table">
-      <div class="tx-grid tx-th"><span>Dato</span><span>Beskrivelse</span><span>Kategori</span><span>Konto</span><span>Hvem</span><span style="text-align:right">Beløp</span></div>
+      <div class="tx-grid tx-th"><span>Dato</span><span>Beskrivelse</span><span>Merkelapp</span><span>Kategori</span><span>Konto</span><span>Hvem</span><span style="text-align:right">Beløp</span></div>
       ${rows || '<div class="tx-empty">Ingen treff — prøv et annet søk eller filter.</div>'}
     </div>
   </div>`;
