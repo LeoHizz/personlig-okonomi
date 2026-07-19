@@ -115,6 +115,7 @@ button{cursor:pointer}
 .liq-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
 .liq-empty{opacity:.5}
 .liq-note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.4}
+.liq-buffer{font-size:12px;color:#4a505a;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2);line-height:1.5}
 .cf-bars{display:flex;gap:14px;align-items:flex-end;height:100px;margin-top:14px}
 .cf-bars > div{flex:1;border-radius:3px 3px 0 0}
 .cf-labels{display:flex;gap:14px;font-size:11px;color:var(--muted);text-align:center;margin-top:6px}

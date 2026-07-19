@@ -361,6 +361,9 @@ function liquidityCard(d) {
   const change = L.change3mFmt
     ? `<div class="cf-sub" style="color:${chColor}">${L.up ? "▲" : "▼"} ${L.change3mFmt} siste 3 mnd</div>`
     : "";
+  const buffer = L.hasCreditInfo
+    ? `<div class="liq-buffer">💳 Kredittkort: <b>benyttet ${L.cardDebtFmt}</b> · ledig <b>${L.creditAvailableFmt}</b> kr <span class="muted">(nødbuffer – tilgjengelig, men gjeld hvis brukt)</span></div>`
+    : "";
   const buildingNote = !L.hasHistory
     ? `<div class="liq-note">Historikk bygges opp fra nå – ett øyeblikksbilde per dag (auto-synk kl. 05). Kurven fylles ut de neste ukene.</div>`
     : "";
@@ -376,6 +379,7 @@ function liquidityCard(d) {
     <div class="liq-wrap"><div class="liq-zero" style="top:${zeroPct}%"></div><div class="liq-cols">${cols}</div></div>
     <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
     ${legend}
+    ${buffer}
     ${buildingNote}
   </div>`;
 }

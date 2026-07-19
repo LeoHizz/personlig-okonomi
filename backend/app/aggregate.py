@@ -260,14 +260,20 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
             "SELECT * FROM accounts WHERE hidden = 0 ORDER BY sort_order, name"
         )
     accounts = []
-    asset_sum = 0.0      # teller i netto formue (inkl. kredittkort-gjeld som negativ)
-    liquid_sum = 0.0     # disponibelt på konto (kredittkort holdt utenfor)
-    credit_debt = 0.0    # utestående kredittkortgjeld (negativ) – trekkes fra netto likviditet
+    asset_sum = 0.0        # teller i netto formue (inkl. kredittkort-gjeld som negativ)
+    liquid_sum = 0.0       # disponibelt på konto (kredittkort holdt utenfor)
+    credit_debt = 0.0      # utestående kredittkortgjeld (negativ) – trekkes fra netto likviditet
+    credit_available = 0.0  # ledig kreditt (nødbuffer) – vises separat, IKKE som likvid
     for a in acc_rows:
         bal = account_current_balance(a["id"])
         has_bal = bool(db.query("SELECT 1 FROM balances WHERE account_id = ? LIMIT 1", (a["id"],)))
         if a["is_credit"]:
             credit_debt += bal  # gjeld er negativ, uansett is_asset
+            av = db.query(
+                "SELECT amount FROM balances WHERE account_id = ? AND balance_type = 'available'",
+                (a["id"],))
+            if av:
+                credit_available += av[0]["amount"]
         if a["is_asset"]:
             asset_sum += bal
             if not a["is_credit"]:
@@ -332,6 +338,8 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "cashFmt": _fmt(liquid_sum),
         "cardDebtFmt": _fmt(-credit_debt),   # positivt tall for visning
         "hasCardDebt": credit_debt < 0,
+        "creditAvailableFmt": _fmt(credit_available),
+        "hasCreditInfo": credit_available > 0,
         "points": liq_points,
         "hasHistory": len(real) >= 2,
         "maxCash": max(cashes) if cashes else max(1, round(liquid_sum)),
