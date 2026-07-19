@@ -1005,7 +1005,7 @@ function renderSettings(tab) {
           <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-weight:700;font-size:13px;white-space:nowrap">${esc(a.balanceFmt || "—")}${a.balanceFmt && a.balanceFmt !== "—" ? " kr" : ""}</span>
-            ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent navn/IBAN fra banken">↻ Hent fra bank</button>`}
+            ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent saldo og nye transaksjoner fra banken">↻ Hent fra bank</button>`}
           </div>
         </div>
         <div class="grid3">
@@ -1107,19 +1107,22 @@ function labelRuleRow(r = {}) {
 }
 function addLabelRule() { document.getElementById("labelRuleRows").insertAdjacentHTML("beforeend", labelRuleRow()); }
 async function refreshAccount(id) {
+  toast("Henter saldo og transaksjoner …");
   try {
     const r = await api.post(`/api/accounts/${id}/refresh`, {});
-    toast("Hentet fra bank: " + (r.bankName || r.iban || "oppdatert"));
+    toast(`Hentet fra bank: ${r.transactions || 0} transaksjoner`);
+    await loadDashboard();
     openSettings("kontoer");
   } catch (e) {
     toast("Kunne ikke hente fra bank");
   }
 }
 async function refreshAllAccounts() {
-  toast("Henter alle kontoer fra bank …");
+  toast("Henter saldo og transaksjoner fra bank …");
   try {
     const r = await api.post("/api/accounts-refresh-all", {});
-    toast(`Oppdatert ${r.updated} konto(er)${r.errors ? ` (${r.errors} feilet)` : ""}`);
+    toast(`Oppdatert ${r.updated} konto(er) · ${r.transactions || 0} transaksjoner${r.errors ? ` (${r.errors} feilet)` : ""}`);
+    await loadDashboard();
     openSettings("kontoer");
   } catch (e) {
     toast("Kunne ikke hente fra bank");

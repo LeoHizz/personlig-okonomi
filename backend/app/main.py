@@ -320,43 +320,56 @@ async def update_account(account_id: str, request: Request):
     return {"ok": True}
 
 
+def _refresh_details(account_id: str, provider_ref: str, cur_name: str) -> dict:
+    """Oppdater kontonavn/IBAN/produkt (letter identifisering). Kan feile stille."""
+    ref = provider_ref or account_id
+    d = gc.get_account_details(ref)
+    fields = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
+    if not cur_name or cur_name in ("Konto", ""):
+        fields["name"] = d.get("name", "Konto")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), account_id])
+    return d
+
+
 @app.post("/api/accounts/{account_id}/refresh")
 def refresh_account(account_id: str):
-    """Hent kontonavn/IBAN/produkt fra banken igjen (letter identifisering)."""
-    ref_row = db.query("SELECT provider_ref FROM accounts WHERE id = ?", (account_id,))
-    ref = ref_row[0]["provider_ref"] if ref_row and ref_row[0]["provider_ref"] else account_id
+    """Hent alt på nytt fra banken: navn/IBAN, saldo OG nye transaksjoner."""
+    row = db.query("SELECT name, provider_ref FROM accounts WHERE id = ?", (account_id,))
+    ref = row[0]["provider_ref"] if row and row[0]["provider_ref"] else account_id
     try:
-        d = gc.get_account_details(ref)
+        d = _refresh_details(account_id, ref, row[0]["name"] if row else "")
+        res = sync.sync_account(account_id, force=True)
     except gc.Error as e:
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
-    updates = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
-    cur = db.query("SELECT name FROM accounts WHERE id = ?", (account_id,))
-    if cur and (not cur[0]["name"] or cur[0]["name"] in ("Konto", "")):
-        updates["name"] = d.get("name", "Konto")
-    sets = ", ".join(f"{k} = ?" for k in updates)
-    db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*updates.values(), account_id])
-    return {"ok": True, "bankName": d.get("name", ""), "iban": d.get("iban", ""), "product": d.get("product", "")}
+    return {
+        "ok": True,
+        "bankName": d.get("name", ""),
+        "iban": d.get("iban", ""),
+        "product": d.get("product", ""),
+        "transactions": res.get("transactions", 0),
+    }
 
 
 @app.post("/api/accounts-refresh-all")
 def refresh_all_accounts():
-    """Hent navn/IBAN/produkt for alle tilkoblede kontoer (slipper å klikke hver)."""
+    """Hent saldo + transaksjoner (og navn/IBAN) for alle tilkoblede kontoer."""
     rows = db.query(
         "SELECT id, name, provider_ref FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
     )
-    updated, errors = 0, 0
+    updated, errors, tx_total = 0, 0, 0
     for r in rows:
         try:
-            d = gc.get_account_details(r["provider_ref"] or r["id"])
-            fields = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
-            if not r["name"] or r["name"] in ("Konto", ""):
-                fields["name"] = d.get("name", "Konto")
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), r["id"]])
+            _refresh_details(r["id"], r["provider_ref"], r["name"])
+        except Exception:  # noqa: BLE001
+            pass  # navn/IBAN er «best effort» – la synken avgjøre feil
+        try:
+            res = sync.sync_account(r["id"], force=True)
+            tx_total += res.get("transactions", 0)
             updated += 1
         except Exception:  # noqa: BLE001
             errors += 1
-    return {"updated": updated, "errors": errors}
+    return {"updated": updated, "errors": errors, "transactions": tx_total}
 
 
 @app.post("/api/accounts-dedupe")
