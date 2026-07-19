@@ -1060,23 +1060,32 @@ function assetRow(a = {}) {
   </div>`;
 }
 function loanRow(l = {}) {
+  const auto = !!l.auto;
   return `<div class="loan-row" style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
     <div class="grid3">
       <div class="field" style="margin:0"><label>Navn</label><input data-f="name" value="${esc(l.name || "")}"></div>
       <div class="field" style="margin:0"><label>Etikett</label><input data-f="tag" value="${esc(l.tag || "")}"></div>
       <div class="field" style="margin:0"><label>Rente (%)</label><input data-f="rate" value="${esc(l.rate ?? "")}"></div>
     </div>
-    <label style="font-size:12px;color:#4a505a;margin-top:10px;display:inline-flex;gap:6px;align-items:center">
-      <input type="checkbox" data-f="auto" ${l.auto ? "checked" : ""}> Auto-nedbetaling (regner ut estimert restgjeld hver måned)
+    <label style="font-size:12px;color:#4a505a;margin-top:12px;display:inline-flex;gap:6px;align-items:center">
+      <input type="checkbox" data-f="auto" ${auto ? "checked" : ""} onchange="toggleLoanAuto(this)"> Auto: estimer restgjeld framover (renter + avdrag)
     </label>
-    <div class="grid3" style="margin-top:8px">
-      <div class="field" style="margin:0"><label>Startsaldo (kr)</label><input data-f="start_balance" type="number" value="${esc(l.start_balance ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Månedlig avdrag (kr)</label><input data-f="monthly_payment" type="number" value="${esc(l.monthly_payment ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Startmåned</label><input data-f="start_date" type="month" value="${esc(l.start_date || "")}"></div>
+
+    <div class="loan-auto-fields" style="${auto ? "" : "display:none"}">
+      <div class="grid3" style="margin-top:8px">
+        <div class="field" style="margin:0"><label>Restgjeld (kr)</label><input data-f="start_balance" type="number" value="${esc(l.start_balance ?? "")}"></div>
+        <div class="field" style="margin:0"><label>…gjaldt i måned</label><input data-f="start_date" type="month" value="${esc(l.start_date || "")}"></div>
+        <div class="field" style="margin:0"><label>Terminbeløp/mnd (kr)</label><input data-f="monthly_payment" type="number" value="${esc(l.monthly_payment ?? "")}"></div>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:6px">«Restgjeld» + hvilken måned det gjaldt (bruk gjerne dagens tall + denne måneden). «Terminbeløp» = det totale du betaler per måned (renter trekkes fra automatisk).</div>
     </div>
+
+    <div class="loan-manual-fields" style="${auto ? "display:none" : ""}">
+      <div class="field" style="margin:8px 0 0"><label>Restgjeld i dag (kr)</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
+    </div>
+
     <div class="grid3" style="margin-top:8px">
-      <div class="field" style="margin:0"><label>Saldo i dag (kr) – uten auto</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
-      <div class="field" style="margin:0"><label>Opprinnelig (kr)</label><input data-f="original" type="number" value="${esc(l.original ?? "")}"></div>
+      <div class="field" style="margin:0"><label>Opprinnelig lån (kr) – for «% nedbetalt»</label><input data-f="original" type="number" value="${esc(l.original ?? "")}"></div>
       <div class="field" style="margin:0"><label>Notat</label><input data-f="note" value="${esc(l.note || "")}"></div>
     </div>
     <button class="row-del" onclick="this.closest('.loan-row').remove()">Fjern</button>
@@ -1143,6 +1152,12 @@ async function dedupeAccounts() {
 }
 function addAsset() { document.getElementById("assetRows").insertAdjacentHTML("beforeend", assetRow()); }
 function addLoan() { document.getElementById("loanRows").insertAdjacentHTML("beforeend", loanRow()); }
+function toggleLoanAuto(cb) {
+  const row = cb.closest(".loan-row");
+  const on = cb.checked;
+  row.querySelector(".loan-auto-fields").style.display = on ? "" : "none";
+  row.querySelector(".loan-manual-fields").style.display = on ? "none" : "";
+}
 
 async function saveSettings(tab) {
   const payload = {};
@@ -1221,7 +1236,7 @@ function monthShort(label) {
 // eksponer funksjoner brukt i inline onclick
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
-  addAsset, addLoan, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
+  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,
