@@ -86,6 +86,26 @@ def _namespace_tx_ids() -> None:
     db.set_setting("migr_tx_namespace", True)
 
 
+def _disambiguate_tx_ids() -> None:
+    """Engangs: legg booking_date på bank-transaksjons-ID (namespaced) så gjentakende
+    entry_reference (f.eks. faste lånetrekk) ikke lenger kolliderer. Etterpå bygges
+    arbeidstabellen om fra rå-arkivet, som henter inn radene som ble overskrevet."""
+    if db.get_setting("migr_tx_datesuffix"):
+        return
+    db.execute(
+        "UPDATE transactions SET id = id || ':' || booking_date "
+        "WHERE booking_date IS NOT NULL AND booking_date != '' "
+        "AND id LIKE '%:%' "
+        "AND id NOT LIKE 'h/_%' ESCAPE '/' AND id NOT LIKE 'csv/_%' ESCAPE '/'"
+    )
+    db.set_setting("migr_tx_datesuffix", True)
+    try:
+        res = sync.rebuild_from_raw()  # gjenoppbygg fra komplett arkiv (ingen API)
+        log.info("Tx-id disambiguering + rebuild: %s rader", res.get("rebuilt"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Rebuild etter tx-id-migrering feilet: %s", e)
+
+
 def _seed_raw_archive() -> None:
     """Seed kilde-arkivet fra rå-data vi ALLEREDE har lagret på transaksjonene.
     Ingen API-kall. Komplett backfill fra banken gjøres separat (krever kall)."""
@@ -141,6 +161,7 @@ async def _startup() -> None:
     _rename_category("Bolig og lån", "Boliglån og husleie")
     _namespace_tx_ids()
     _seed_raw_archive()
+    _disambiguate_tx_ids()  # fikser kollisjon på gjentakende entry_reference + rebuild fra arkiv
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()

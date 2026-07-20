@@ -19,6 +19,16 @@ def _hash_tx(account_id: str, t: dict) -> str:
     return "h_" + hashlib.sha1(basis.encode()).hexdigest()[:20]
 
 
+def _tx_id(account_id: str, t: dict) -> str:
+    """Stabil, kollisjonsfri transaksjons-id. Inkluderer booking_date fordi bankens
+    entry_reference kan GJENTAS (f.eks. faste lånetrekk der referansen = lånekonto-
+    nummeret, likt hver måned). Uten datoen kollapser alle månedene til én rad."""
+    ref = t.get("id")
+    if ref:
+        return f"{account_id}:{ref}:{t.get('booking_date') or ''}"
+    return _hash_tx(account_id, t)
+
+
 def _bank_code(institution_name: str, institution_id: str) -> str:
     name = (institution_name or institution_id or "").upper()
     if "SPAREBANKEN" in name or "SPV" in name or name.startswith("SPARE"):
@@ -56,10 +66,7 @@ def _save_balances(account_id: str, balances: list[dict]) -> None:
 def _upsert_transactions(account_id: str, txs: list[dict]) -> int:
     count = 0
     for t in txs:
-        # Namespace ID med konto: bankens entry_reference er kun unik PER konto,
-        # så uten dette kan like referanser på ulike kontoer overskrive hverandre.
-        ref = t.get("id")
-        tx_id = f"{account_id}:{ref}" if ref else _hash_tx(account_id, t)
+        tx_id = _tx_id(account_id, t)
         counterparty = t.get("counterparty", "")
         remittance = t.get("remittance", "")
         amount = t.get("amount", 0.0)
@@ -233,8 +240,7 @@ def rebuild_from_raw() -> dict:
             continue
         account_id = row["account_id"]
         t = gc.normalize_raw(obj)  # provider-uavhengig normalisering (ikke privat funksjon)
-        ref = t.get("id")
-        tx_id = f"{account_id}:{ref}" if ref else _hash_tx(account_id, t)
+        tx_id = _tx_id(account_id, t)
 
         if tx_id in keep_cat:
             category, source = keep_cat[tx_id], "manual"
