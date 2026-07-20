@@ -70,6 +70,20 @@ def _migrate_categories() -> None:
     db.set_setting("migr_cat_forsikring", True)
 
 
+def _namespace_tx_ids() -> None:
+    """Engangs: prefiks bank-transaksjons-ID (bare entry_reference) med konto-ID,
+    så de matcher nytt skjema (account_id:ref) og re-synk ikke lager duplikater.
+    Hopper over hash-ID (h_), csv-ID (csv_) og allerede namespacede (inneholder ':')."""
+    if db.get_setting("migr_tx_namespace"):
+        return
+    db.execute(
+        "UPDATE transactions SET id = account_id || ':' || id "
+        "WHERE id IS NOT NULL AND instr(id, ':') = 0 "
+        "AND id NOT LIKE 'h/_%' ESCAPE '/' AND id NOT LIKE 'csv/_%' ESCAPE '/'"
+    )
+    db.set_setting("migr_tx_namespace", True)
+
+
 def _rename_category(old: str, new: str) -> None:
     """Ren omdøping av en kategori – flytter ALLE transaksjoner (auto + manuelle),
     budsjett-nøkkel og brukerregler fra gammelt til nytt navn. Idempotent."""
@@ -104,6 +118,7 @@ async def _startup() -> None:
     _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
+    _namespace_tx_ids()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
@@ -539,12 +554,29 @@ async def set_category(tx_id: str, request: Request):
         (category, tx_id),
     )
     learned = 0
+    conflicts = 0
     if body.get("learn", True) and row:
         # Lær butikknavn -> kategori, og bruk det bare på liknende linjer (samme sted).
         cp = row[0]["counterparty"]
         categorize.learn_rule(cp, category)
         learned = categorize.apply_pattern_to_existing(cp, category)
-    return {"ok": True, "learned": learned}
+        # Manuelt satte linjer fra samme sted røres ikke automatisk – tell dem så
+        # frontenden kan spørre om de også skal oppdateres.
+        conflicts = len(categorize.find_similar_manual(cp, category, exclude_id=tx_id))
+    return {"ok": True, "learned": learned, "conflicts": conflicts}
+
+
+@app.post("/api/transactions/{tx_id}/apply-similar")
+async def apply_category_similar(tx_id: str, request: Request):
+    """Sett samme kategori på ALLE linjer fra samme sted – også manuelt satte.
+    Kalles kun etter at brukeren har bekreftet det i UI."""
+    body = await request.json()
+    category = body.get("category")
+    row = db.query("SELECT counterparty FROM transactions WHERE id = ?", (tx_id,))
+    if not category or not row:
+        return JSONResponse({"error": "category eller transaksjon mangler"}, status_code=400)
+    updated = categorize.apply_pattern_override(row[0]["counterparty"], category, exclude_id=tx_id)
+    return {"ok": True, "updated": updated}
 
 
 @app.post("/api/transactions/{tx_id}/label")

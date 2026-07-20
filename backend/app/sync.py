@@ -56,7 +56,10 @@ def _save_balances(account_id: str, balances: list[dict]) -> None:
 def _upsert_transactions(account_id: str, txs: list[dict]) -> int:
     count = 0
     for t in txs:
-        tx_id = t.get("id") or _hash_tx(account_id, t)
+        # Namespace ID med konto: bankens entry_reference er kun unik PER konto,
+        # så uten dette kan like referanser på ulike kontoer overskrive hverandre.
+        ref = t.get("id")
+        tx_id = f"{account_id}:{ref}" if ref else _hash_tx(account_id, t)
         counterparty = t.get("counterparty", "")
         remittance = t.get("remittance", "")
         amount = t.get("amount", 0.0)

@@ -386,6 +386,57 @@ def apply_pattern_to_existing(pattern: str, category: str) -> int:
     return changed
 
 
+def _norm(s: str | None) -> str:
+    return " ".join((s or "").split()).lower()
+
+
+def _row_text(r) -> str:
+    """Samme tekst som mønster-matchingen bruker: motpart + melding."""
+    return _norm(f"{r['counterparty'] or ''} {r['remittance'] or ''}")
+
+
+def find_similar_manual(pattern: str, category: str, exclude_id: str | None = None) -> list[str]:
+    """Id-er til MANUELT satte linjer som matcher mønsteret, men har en ANNEN
+    kategori enn den vi setter. Brukes for å spørre «vil du også oppdatere disse?»
+    før vi eventuelt overkjører et manuelt valg."""
+    from . import db
+
+    pat = _norm(pattern)
+    if not pat:
+        return []
+    ids: list[str] = []
+    for r in db.query(
+        "SELECT id, counterparty, remittance, category, category_source FROM transactions"
+    ):
+        if r["id"] == exclude_id or r["category_source"] != "manual" or r["category"] == category:
+            continue
+        if pat in _row_text(r):
+            ids.append(r["id"])
+    return ids
+
+
+def apply_pattern_override(pattern: str, category: str, exclude_id: str | None = None) -> int:
+    """Sett kategori på ALLE linjer som matcher mønsteret – også manuelt satte.
+    Markerer dem som manuelle (brukeren har eksplisitt bekreftet valget).
+    Returnerer antall linjer som ble endret."""
+    from . import db
+
+    pat = _norm(pattern)
+    if not pat:
+        return 0
+    changed = 0
+    for r in db.query("SELECT id, counterparty, remittance, category FROM transactions"):
+        if r["id"] == exclude_id or r["category"] == category:
+            continue
+        if pat in _row_text(r):
+            db.execute(
+                "UPDATE transactions SET category = ?, category_source = 'manual' WHERE id = ?",
+                (category, r["id"]),
+            )
+            changed += 1
+    return changed
+
+
 def apply_rules_to_existing() -> int:
     """Kjør reglene på nytt over alle transaksjoner som ikke er manuelt satt.
     Returnerer antall som endret kategori."""

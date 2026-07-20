@@ -1002,6 +1002,18 @@ async function changeTxCategory(id, cat) {
     const res = await api.post(`/api/transactions/${id}/category`, { category: cat });
     const extra = res && res.learned ? ` · lært for ${res.learned} liknende` : "";
     toast("Kategori endret ✓" + extra);
+    // Manuelt satte linjer fra samme sted oppdateres ikke automatisk – spør først.
+    if (res && res.conflicts > 0) {
+      const n = res.conflicts;
+      const ok = confirm(
+        `${n} annen linje${n > 1 ? "r" : ""} fra samme sted er satt manuelt til en annen ` +
+        `kategori.\n\nVil du også sette ${n > 1 ? "disse" : "den"} til «${cat}»?`
+      );
+      if (ok) {
+        const r2 = await api.post(`/api/transactions/${id}/apply-similar`, { category: cat });
+        toast(`Oppdaterte ${r2.updated} linje${r2.updated === 1 ? "" : "r"} til «${cat}»`);
+      }
+    }
     renderTransactions();
   } catch (e) {
     toast("Kunne ikke endre kategori");
