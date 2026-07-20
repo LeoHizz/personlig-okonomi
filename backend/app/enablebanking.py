@@ -224,7 +224,11 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
             if resp.status_code == 429:
                 raise ProviderError("Ratebegrensning nådd (transaksjoner).", 429, _safe_json(resp))
             if resp.status_code != 200:
-                # pending støttes ikke av alle banker – hopp over stille
+                # BOOKED er kjernedataene – feil her SKAL synliggjøres (ikke svelges),
+                # så synken kan logge den. PENDING støttes ikke av alle banker → hopp stille.
+                if status_filter == "BOOK":
+                    raise ProviderError("Kunne ikke hente bokførte transaksjoner.",
+                                        resp.status_code, _safe_json(resp))
                 break
             data = resp.json()
             for t in data.get("transactions", []) or []:

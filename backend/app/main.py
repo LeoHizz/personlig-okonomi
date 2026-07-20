@@ -14,7 +14,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import aggregate, categorize, config, db, demo, provider as gc, importer, labels, sync
+import json
+
+from . import aggregate, categorize, config, db, demo, provider as gc, importer, labels, rawstore, sync
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 log = logging.getLogger("okonomi")
@@ -84,6 +86,25 @@ def _namespace_tx_ids() -> None:
     db.set_setting("migr_tx_namespace", True)
 
 
+def _seed_raw_archive() -> None:
+    """Seed kilde-arkivet fra rå-data vi ALLEREDE har lagret på transaksjonene.
+    Ingen API-kall. Komplett backfill fra banken gjøres separat (krever kall)."""
+    if db.get_setting("migr_raw_seed"):
+        return
+    at = datetime.now().isoformat()
+    n = 0
+    for r in db.query("SELECT account_id, raw FROM transactions "
+                      "WHERE raw IS NOT NULL AND raw NOT IN ('', 'null')"):
+        try:
+            obj = json.loads(r["raw"])
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            n += rawstore.archive(r["account_id"], [obj], "seed", at)
+    db.set_setting("migr_raw_seed", True)
+    log.info("Rå-arkiv seedet fra eksisterende data: %s nye rader", n)
+
+
 def _rename_category(old: str, new: str) -> None:
     """Ren omdøping av en kategori – flytter ALLE transaksjoner (auto + manuelle),
     budsjett-nøkkel og brukerregler fra gammelt til nytt navn. Idempotent."""
@@ -119,6 +140,7 @@ async def _startup() -> None:
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
     _namespace_tx_ids()
+    _seed_raw_archive()
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
@@ -189,6 +211,12 @@ async def demo_toggle(request: Request):
 @app.get("/api/dashboard")
 def dashboard(month: str | None = None, persons: str | None = None):
     return aggregate.build_dashboard(month, persons)
+
+
+@app.get("/api/source-status")
+def source_status():
+    """Innsyn i kilde-laget: hvor mye rådata vi har, og siste synk-forsøk (m/feil)."""
+    return {"archive": rawstore.stats(), "runs": rawstore.last_runs(30)}
 
 
 @app.get("/api/loan-history")

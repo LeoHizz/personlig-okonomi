@@ -11,7 +11,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
-from . import categorize, config, db, provider as gc
+from . import categorize, config, db, provider as gc, rawstore
 
 
 def _hash_tx(account_id: str, t: dict) -> str:
@@ -181,10 +181,21 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         result["balance_error"] = str(e)
 
     date_from = (datetime.now(timezone.utc) - timedelta(days=config.HISTORY_DAYS)).date().isoformat()
-    txs = gc.get_transactions(ref, date_from=date_from)
-    result["transactions"] = _upsert_transactions(account_id, txs)
+    now = gc.utc_now_iso()
+    try:
+        txs = gc.get_transactions(ref, date_from=date_from)
+    except gc.Error as e:
+        # Feil på bokførte transaksjoner logges (ikke svelges) – synk «lyver» ikke lenger.
+        rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, str(e))
+        result["tx_error"] = str(e)
+    else:
+        # 1) KILDE: arkiver rå-objektene urørt. 2) AVLEDET: oppdater arbeidstabellen.
+        raw_objs = [t.get("raw", t) for t in txs]
+        result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now)
+        rawstore.record_run(account_id, "ok", now, 200, len(raw_objs))
+        result["transactions"] = _upsert_transactions(account_id, txs)
 
-    db.execute("UPDATE accounts SET last_synced = ? WHERE id = ?", (gc.utc_now_iso(), account_id))
+    db.execute("UPDATE accounts SET last_synced = ? WHERE id = ?", (now, account_id))
     return result
 
 

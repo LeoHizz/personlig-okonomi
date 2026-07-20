@@ -136,6 +136,34 @@ CREATE TABLE IF NOT EXISTS liquidity_snapshots (
     debt REAL,
     net  REAL
 );
+
+-- KILDE-LAG: rått, urørt arkiv av bankens transaksjonsobjekter (verbatim).
+-- Nøkkel = innholds-hash, så samme objekt lagres én gang (idempotent). Røres
+-- ALDRI av tolkning – alt appen viser deriveres FRA denne.
+CREATE TABLE IF NOT EXISTS raw_transactions (
+    content_hash    TEXT PRIMARY KEY,
+    account_id      TEXT,
+    provider        TEXT,
+    fetched_at      TEXT,
+    entry_reference TEXT,
+    booking_date    TEXT,
+    amount          REAL,
+    raw             TEXT NOT NULL        -- hele bankens JSON, verbatim
+);
+CREATE INDEX IF NOT EXISTS idx_raw_account ON raw_transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_raw_date    ON raw_transactions(booking_date);
+
+-- Revisjonslogg for hvert synk-forsøk (slutt på stille svelging av feil).
+CREATE TABLE IF NOT EXISTS sync_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id   TEXT,
+    started_at   TEXT,
+    status       TEXT,        -- ok | error
+    http_status  INTEGER,
+    count        INTEGER,
+    error_detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_acct ON sync_runs(account_id, started_at);
 """
 
 
@@ -193,3 +221,11 @@ def execute(sql: str, params: Iterable = ()) -> None:
     conn = get_conn()
     conn.execute(sql, tuple(params))
     conn.commit()
+
+
+def execute_rowcount(sql: str, params: Iterable = ()) -> int:
+    """Som execute(), men returnerer antall berørte rader (f.eks. for INSERT OR IGNORE)."""
+    conn = get_conn()
+    cur = conn.execute(sql, tuple(params))
+    conn.commit()
+    return cur.rowcount
