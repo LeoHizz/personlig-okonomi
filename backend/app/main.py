@@ -176,6 +176,11 @@ def dashboard(month: str | None = None, persons: str | None = None):
     return aggregate.build_dashboard(month, persons)
 
 
+@app.get("/api/loan-history")
+def loan_history(pattern: str, persons: str | None = None):
+    return aggregate.build_loan_history(pattern, persons)
+
+
 @app.get("/api/transactions")
 def transactions(month: str | None = None, persons: str | None = None,
                  category: str | None = None, q: str | None = None,

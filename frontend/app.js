@@ -438,11 +438,14 @@ function loansCard(d) {
   }
   const items = d.loans
     .map(
-      (l) => `<div style="margin-top:12px">
-      <div class="loan-name"><span>${esc(l.name)} <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span>${l.estimated ? ` <span class="acc-tag" style="background:#fff3d6;color:#8a6d1a">estimert</span>` : ""}</span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
+      (l) => {
+      const clk = l.payMatch ? ` class="merch-link" onclick="openLoanHistory('${jsq(l.payMatch)}','${jsq(l.name)}')" title="Se faktiske betalinger"` : "";
+      return `<div style="margin-top:12px">
+      <div class="loan-name"><span><span${clk}>${esc(l.name)}</span> <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span>${l.estimated ? ` <span class="acc-tag" style="background:#fff3d6;color:#8a6d1a">estimert</span>` : ""}</span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
       <div class="bar" style="margin-top:10px"><div style="width:${l.paidPct}%;background:var(--navy)"></div></div>
       <div class="loan-sub">${l.paidPct} % nedbetalt${l.estimated && l.monthlyPayment ? " · " + numFmt(l.monthlyPayment) + "/mnd" : ""}${l.note ? " · " + esc(l.note) : ""}</div>
-    </div>`
+    </div>`;
+      }
     )
     .join("");
   const anyEstimated = d.loans.some((l) => l.estimated);
@@ -962,6 +965,38 @@ async function openMerchant(name) {
   </div>`;
 }
 
+async function openLoanHistory(pattern, name) {
+  if (!pattern) return;
+  let m;
+  try {
+    const params = new URLSearchParams({ pattern });
+    if (state.persons.length) params.set("persons", state.persons.join(","));
+    m = await api.get("/api/loan-history?" + params.toString());
+  } catch (e) {
+    toast("Kunne ikke hente lån-historikk");
+    return;
+  }
+  const mx = Math.max(1, m.max);
+  const bars = m.series
+    .map((s) => `<div style="height:${Math.max(3, Math.round((s.amount / mx) * 100))}%;background:var(--amber-bright);opacity:${s.amount ? "1" : "0.2"}" title="${esc(s.label)}: ${s.amount}"></div>`)
+    .join("");
+  const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
+  const recent = m.recent
+    .map((r) => `<div class="sel-item"><span>${esc(r.date)} ${esc(r.desc)} <span class="muted">${esc(r.acct)}</span></span><b>${esc(r.amtFmt)}</b></div>`)
+    .join("") || '<div class="muted" style="font-size:12.5px">Fant ingen betalinger som matcher. Sjekk «Gjenkjenn betalinger» på lånet (Innstillinger → Lån).</div>';
+  $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <h2>${esc(name)} — faktiske betalinger</h2>
+      <div class="sub">${m.count} betalinger · totalt ${m.totalFmt} kr · snitt ${m.avgFmt} kr/mnd</div>
+      <div class="cf-head" style="margin-top:16px"><div class="card-title">Betalt per måned</div><div class="cf-sub">rente + avdrag samlet</div></div>
+      <div class="cf-bars" style="gap:6px;margin-top:10px">${bars}</div>
+      <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
+      <div style="margin-top:18px"><div class="card-title">Siste betalinger</div><div style="margin-top:8px">${recent}</div></div>
+    </div>
+  </div>`;
+}
+
 async function changeTxCategory(id, cat) {
   try {
     const res = await api.post(`/api/transactions/${id}/category`, { category: cat });
@@ -1186,6 +1221,8 @@ function loanRow(l = {}) {
       <div class="field" style="margin:8px 0 0"><label>Restgjeld i dag (kr)</label><input data-f="balance" type="number" value="${esc(l.balance ?? "")}"></div>
     </div>
 
+    <div class="field" style="margin-top:8px"><label>Gjenkjenn betalinger (lånekontonr. eller tekst i overføringen)</label><input data-f="pay_match" value="${esc(l.pay_match || "")}" placeholder="f.eks. 36212487753 eller DNB Boliglån"></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">Fyll inn så kan du klikke på lånet på forsiden og se faktiske betalinger over tid.</div>
     <div class="field" style="margin-top:8px"><label>Notat</label><input data-f="note" value="${esc(l.note || "")}"></div>
     <button class="row-del" onclick="this.closest('.loan-row').remove()">Fjern</button>
   </div>`;
@@ -1381,7 +1418,7 @@ Object.assign(window, {
   addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
-  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant,
+  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory,
 });
 
 init();

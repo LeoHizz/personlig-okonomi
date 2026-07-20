@@ -434,6 +434,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
                 "note": lb.get("note", ""),
                 "estimated": estimated,
                 "monthlyPayment": round(float(lb.get("monthly_payment", 0) or 0)) if estimated else None,
+                "payMatch": lb.get("pay_match", ""),
                 "paidThisMonth": lb.get("paid_this_month"),
                 "interest": lb.get("interest"),
                 "principal": lb.get("principal"),
@@ -904,6 +905,50 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
         "recent": recent, "months": len(active),
         "first": _short_date(txs[-1]["booking_date"]) if txs else "",
         "last": _short_date(txs[0]["booking_date"]) if txs else "",
+    }
+
+
+def build_loan_history(pattern: str | None, persons=None) -> dict:
+    """Faktiske lånebetalinger (utgående overføringer) som matcher `pattern`
+    (lånekontonr. eller tekst) i remittance/counterparty."""
+    pattern = (pattern or "").strip().lower()
+    persons = _norm_persons(persons)
+    if not pattern:
+        return {"count": 0, "series": [], "recent": [], "totalFmt": "0", "avgFmt": "0", "max": 0, "months": 0}
+    like = f"%{pattern}%"
+    rows = db.query(
+        "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
+        "FROM transactions t JOIN accounts a ON a.id = t.account_id "
+        "WHERE a.hidden = 0 AND (lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ?) "
+        "ORDER BY t.booking_date DESC",
+        (like, like),
+    )
+    txs = [dict(r) for r in rows]
+    if persons:
+        txs = [t for t in txs if (t["owner"] or "") in persons]
+    pays = [t for t in txs if t["amount"] < 0]  # betalinger = utgående
+    total = sum(-t["amount"] for t in pays)
+    by_month: dict[str, float] = defaultdict(float)
+    for t in pays:
+        by_month[(t["booking_date"] or "")[:7]] += -t["amount"]
+    months = _prev_months(current_month(), 12)
+    series = [
+        {"month": m, "label": _month_label(m).split()[0][:3], "amount": round(by_month.get(m, 0.0))}
+        for m in months
+    ]
+    active = [m for m in by_month if by_month[m] > 0]
+    recent = [
+        {"date": _short_date(t["booking_date"]),
+         "amtFmt": "−" + _fmt(-t["amount"]),
+         "desc": (t["counterparty"] or t["remittance"] or "")[:44],
+         "acct": t["bank_code"] or t["acct_name"] or ""}
+        for t in pays[:12]
+    ]
+    return {
+        "count": len(pays), "totalFmt": _fmt(total),
+        "avgFmt": _fmt(total / len(active)) if active else "0",
+        "series": series, "max": max((s["amount"] for s in series), default=0),
+        "recent": recent, "months": len(active),
     }
 
 
