@@ -175,8 +175,11 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     manual_assets = db.get_setting("manual_assets", []) or []
     manual_liabilities = db.get_setting("manual_liabilities", []) or []
     if filtering:
-        manual_assets = [x for x in manual_assets if (x.get("owner") or "") in persons]
-        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "") in persons]
+        # Felles/uspesifiserte poster (boliglån, bolig, hytte …) er husholdnings-nivå
+        # og skal vises uansett hvilken person du filtrerer på – ikke forsvinne.
+        keep = set(persons) | {"Felles", ""}
+        manual_assets = [x for x in manual_assets if (x.get("owner") or "Felles") in keep]
+        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "Felles") in keep]
     household = db.get_setting("household_name", "Min økonomi")
     savings_goal = db.get_setting("savings_goal_pct", 20)
 
