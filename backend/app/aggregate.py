@@ -895,12 +895,14 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
     persons = _norm_persons(persons)
     if not name:
         return {"name": "", "count": 0, "series": [], "recent": []}
+    # Match på counterparty ELLER remittance – mange butikker har tom counterparty
+    # (navnet ligger i remittance, f.eks. «COOP MEGA KLEPP · 710»).
     rows = db.query(
         "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
         "FROM transactions t JOIN accounts a ON a.id = t.account_id "
-        "WHERE a.hidden = 0 AND lower(t.counterparty) = lower(?) "
+        "WHERE a.hidden = 0 AND (lower(t.counterparty) = lower(?) OR lower(t.remittance) = lower(?)) "
         "ORDER BY t.booking_date DESC",
-        (name,),
+        (name, name),
     )
     txs = [dict(r) for r in rows]
     if persons:
