@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS raw_transactions (
     entry_reference TEXT,
     booking_date    TEXT,
     amount          REAL,
+    status          TEXT,                -- bokført/ventende slik banken viste den (BOOK/PDNG)
     raw             TEXT NOT NULL        -- hele bankens JSON, verbatim
 );
 CREATE INDEX IF NOT EXISTS idx_raw_account ON raw_transactions(account_id);

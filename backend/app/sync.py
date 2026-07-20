@@ -200,14 +200,15 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, str(e))
         result["tx_error"] = str(e)
     else:
-        # Kun BOKFØRTE er durabel kilde. Ventende (pending) skifter dato/beløp/referanse
-        # når de bokføres → ville blitt en NY rad = dobbeltføring. De hentes uansett inn
-        # når de bokføres (1–3 dager). Vi ofrer «ferskest mulig» for korrekte tall.
-        booked = [t for t in txs if t.get("status") != "pending"]
-        # 1) KILDE: arkiver rå-objektene urørt. 2) AVLEDET: oppdater arbeidstabellen.
-        raw_objs = [t.get("raw", t) for t in booked]
-        result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now)
+        # 1) KILDE: arkiver ALT banken ga oss, urørt, med bokført/ventende-status.
+        raw_objs = [t.get("raw", t) for t in txs]
+        statuses = [t.get("status") for t in txs]
+        result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now, statuses)
         rawstore.record_run(account_id, "ok", now, 200, len(raw_objs))
+        # 2) AVLEDET: kun BOKFØRTE teller. Ventende (pending) skifter dato/beløp/referanse
+        # når de bokføres → ville blitt en NY rad = dobbeltføring. De hentes uansett inn
+        # på nytt som bokførte (1–3 dager). Vi ofrer «ferskest mulig» for korrekte tall.
+        booked = [t for t in txs if t.get("status") != "pending"]
         result["pending_skipped"] = len(txs) - len(booked)
         result["transactions"] = _upsert_transactions(account_id, booked)
 
@@ -242,7 +243,11 @@ def rebuild_from_raw() -> dict:
             keep_labels[r["id"]] = r["labels"]
 
     records = []
-    for row in db.query("SELECT account_id, raw FROM raw_transactions ORDER BY booking_date"):
+    for row in db.query("SELECT account_id, status, raw FROM raw_transactions ORDER BY booking_date"):
+        # Ventende teller ikke (unngår dobbeltføring pending→booked). NULL-status =
+        # eldre arkiv-rader vi ikke kjenner skillet på → behandles som bokført.
+        if row["status"] == "pending":
+            continue
         try:
             obj = json.loads(row["raw"])
         except (ValueError, TypeError):

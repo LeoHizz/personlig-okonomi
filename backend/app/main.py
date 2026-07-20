@@ -109,24 +109,27 @@ def _disambiguate_tx_ids() -> None:
         log.warning("Rebuild etter tx-id-migrering feilet: %s", e)
 
 
-def _purge_pending() -> None:
-    """Engangs: fjern ventende (pending) transaksjoner fra arbeidstabellen OG kilde-
-    arkivet. Ventende skifter dato/beløp når de bokføres → ellers to rader for samme
-    kjøp (dobbeltføring). Kun bokførte er durabel kilde framover (se sync.sync_account).
-    De ventende ble fanget i tidligere synk; vi identifiserer arkiv-radene via status-
-    kolonnen i arbeidstabellen (arkivet selv bærer ikke bokført/ventende-skillet)."""
-    if db.get_setting("migr_purge_pending"):
+def _annotate_pending() -> None:
+    """Engangs: sett status='pending' på eldre arkiv-rader vi VET er ventende, og fjern
+    de ventende fra arbeidstabellen. Vi sletter IKKE fra kilde-arkivet (append-only) –
+    vi merker dem, så avledet-laget (rebuild) kan ekskludere dem og unngå dobbeltføring
+    (pending→booked gir to rader for samme kjøp). Arkivet bærer ikke skillet selv, så vi
+    identifiserer de ventende via status-kolonnen i arbeidstabellen. Nye synk lagrer
+    status direkte (se rawstore.archive), så dette trengs kun for historikk."""
+    if db.get_setting("migr_pending_status"):
         return
     pend = db.query("SELECT account_id, booking_date, amount FROM transactions WHERE status = 'pending'")
     for r in pend:
         # IS er NULL-trygg likhet i SQLite (matcher også tom/manglende bokføringsdato).
+        # Rør bare rader som ennå ikke er merket (idempotent).
         db.execute(
-            "DELETE FROM raw_transactions WHERE account_id = ? AND booking_date IS ? AND amount = ?",
+            "UPDATE raw_transactions SET status = 'pending' "
+            "WHERE account_id = ? AND booking_date IS ? AND amount = ? AND status IS NULL",
             (r["account_id"], r["booking_date"], r["amount"]),
         )
     n = db.execute_rowcount("DELETE FROM transactions WHERE status = 'pending'")
-    db.set_setting("migr_purge_pending", True)
-    log.info("Ventende transaksjoner fjernet (arbeidstabell + arkiv): %s rader", n)
+    db.set_setting("migr_pending_status", True)
+    log.info("Ventende merket i arkiv + fjernet fra arbeidstabell: %s rader", n)
 
 
 def _seed_raw_archive() -> None:
@@ -136,14 +139,14 @@ def _seed_raw_archive() -> None:
         return
     at = gc.utc_now_iso()  # konsistent UTC-tidsstempel (som synken bruker)
     n = 0
-    for r in db.query("SELECT account_id, raw FROM transactions "
+    for r in db.query("SELECT account_id, status, raw FROM transactions "
                       "WHERE raw IS NOT NULL AND raw NOT IN ('', 'null')"):
         try:
             obj = json.loads(r["raw"])
         except (ValueError, TypeError):
             continue
         if isinstance(obj, dict):
-            n += rawstore.archive(r["account_id"], [obj], "seed", at)
+            n += rawstore.archive(r["account_id"], [obj], "seed", at, [r["status"]])
     db.set_setting("migr_raw_seed", True)
     log.info("Rå-arkiv seedet fra eksisterende data: %s nye rader", n)
 
@@ -180,11 +183,12 @@ async def _startup() -> None:
     _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
     _ensure_column("accounts", "credit_limit", "REAL")  # manuell kredittramme (nødbuffer-utregning)
     _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
+    _ensure_column("raw_transactions", "status", "TEXT")  # bokført/ventende i kilde-arkivet
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
     _namespace_tx_ids()
     _seed_raw_archive()
-    _purge_pending()        # fjern ventende (dobbeltførings-kilde) FØR rebuild
+    _annotate_pending()     # merk ventende i arkiv + fjern fra arbeidstabell FØR rebuild
     _disambiguate_tx_ids()  # fikser kollisjon på gjentakende entry_reference + rebuild fra arkiv
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:

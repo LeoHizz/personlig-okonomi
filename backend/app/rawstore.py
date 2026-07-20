@@ -30,9 +30,15 @@ def _amount(raw_obj) -> float | None:
         return None
 
 
-def archive(account_id: str, raw_objs: list, provider: str, fetched_at: str) -> int:
+def archive(account_id: str, raw_objs: list, provider: str, fetched_at: str,
+            statuses: list | None = None) -> int:
     """Lagre rå-transaksjonsobjekter uforanderlig, i ÉN transaksjon. Idempotent;
     returnerer antall NYE rader (eksisterende ignoreres, aldri overskrevet).
+
+    `statuses` er en valgfri parallell-liste (samme rekkefølge som `raw_objs`) med
+    bokført/ventende slik banken viste raden (BOOK/PDNG). Rå-objektet selv bærer
+    ikke skillet, så vi lagrer det som egen kolonne – ikke som del av innholds-
+    hashen (idempotens uendret). Avledet-laget teller kun bokførte.
 
     To genuint distinkte transaksjoner kan ha IDENTISK rå-innhold (f.eks. to like
     kjøp samme dag uten entry_reference). Vi disambiguerer da med en forekomst-
@@ -40,26 +46,27 @@ def archive(account_id: str, raw_objs: list, provider: str, fetched_at: str) -> 
     (samme batch => samme nøkler), så vi verken mister eller dubler dem."""
     seen: dict[str, int] = {}
     rows = []
-    for r in raw_objs or []:
+    for i, r in enumerate(raw_objs or []):
         if not isinstance(r, dict):
             continue
         base = _content_hash(account_id, r)
         occ = seen.get(base, 0)
         seen[base] = occ + 1
         ch = base if occ == 0 else f"{base}.{occ}"
+        status = statuses[i] if statuses is not None and i < len(statuses) else None
         rows.append((
             ch, account_id, provider, fetched_at,
             str(r.get("entry_reference") or "") or None,
             r.get("booking_date") or r.get("value_date") or r.get("transaction_date") or None,
-            _amount(r),
+            _amount(r), status,
             json.dumps(r, ensure_ascii=False, default=str),
         ))
     if not rows:
         return 0
     return db.insert_ignore_many(
         "INSERT OR IGNORE INTO raw_transactions"
-        "(content_hash, account_id, provider, fetched_at, entry_reference, booking_date, amount, raw) "
-        "VALUES(?,?,?,?,?,?,?,?)",
+        "(content_hash, account_id, provider, fetched_at, entry_reference, booking_date, amount, status, raw) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
         rows,
     )
 
