@@ -124,6 +124,28 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
+def _loan_interest(liabilities: list[dict], month: str) -> float:
+    """Estimert lånerente for `month` (fra amortisering av auto-lån). Renter er
+    ekte kostnad og skal telle som forbruk; avdrag er sparing (holdes utenfor)."""
+    total = 0.0
+    for lb in liabilities or []:
+        if not lb.get("auto"):
+            continue
+        rate = _parse_rate(lb.get("rate"))
+        if rate <= 0:
+            continue
+        r = rate / 12.0
+        bal = float(lb.get("start_balance", 0) or 0)
+        monthly = float(lb.get("monthly_payment", 0) or 0)
+        for _ in range(max(0, _months_between(lb.get("start_date", ""), month))):
+            bal -= monthly - bal * r
+            if bal <= 0:
+                bal = 0.0
+                break
+        total += max(0.0, bal * r)
+    return total
+
+
 def _income_spending(txs: list[dict]) -> tuple[float, float]:
     """Som KPI-ene INN/UT: inntekt (positive, ekskl. Overføring) og forbruk
     (negative, ekskl. både Inntekt og Overføring). Brukes til cashflow så tallet
@@ -195,6 +217,12 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         key = t["counterparty"] or t["remittance"] or "Diverse"
         cat_items[cat][key][0] += amt
         cat_items[cat][key][1] += 1
+
+    # Estimerte lånerenter (fra registrerte lån) telles som forbruk – de er en ekte
+    # kostnad. Avdrag holdes utenfor (sparing, teller i netto formue).
+    loan_interest = _loan_interest(manual_liabilities, month)
+    if loan_interest > 0:
+        cat_totals["Lånerenter"] += loan_interest
 
     total_expense = sum(cat_totals.values()) or expense or 1.0
 
@@ -414,11 +442,11 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
 
     net_worth = asset_sum + manual_asset_sum - liability_sum
 
-    # --- cashflow siste 7 måneder (netto = INN − UT, samme som spareraten) ---
+    # --- cashflow siste 7 måneder (netto = INN − UT inkl. lånerenter, som spareraten) ---
     cashflow = []
     for m in _prev_months(month, 7):
         inc, spend = _income_spending(_month_transactions(m, persons))
-        net = inc - spend
+        net = inc - spend - _loan_interest(manual_liabilities, m)
         cashflow.append(
             {
                 "label": _month_label(m).split()[0][:3],
@@ -432,8 +460,9 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     yr, mo = int(month[:4]), int(month[5:7])
     ytd_net = 0.0
     for mm in range(1, mo + 1):
-        inc, spend = _income_spending(_month_transactions(f"{yr:04d}-{mm:02d}", persons))
-        ytd_net += inc - spend
+        ym = f"{yr:04d}-{mm:02d}"
+        inc, spend = _income_spending(_month_transactions(ym, persons))
+        ytd_net += inc - spend - _loan_interest(manual_liabilities, ym)
 
     # Kombinert trend (12 mnd, forankret til i dag): sparing (flyt, stolper) +
     # netto likviditet (nivå, linje – kun der vi har øyeblikksbilde).
@@ -441,6 +470,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     trend = []
     for m in _prev_months(now_month, 12):
         inc, spend = _income_spending(_month_transactions(m, persons))
+        spend += _loan_interest(manual_liabilities, m)
         p = snap_by_month.get(m)
         trend.append({
             "label": _month_label(m).split()[0][:3],

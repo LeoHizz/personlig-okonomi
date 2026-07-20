@@ -23,6 +23,7 @@ CATEGORY_COLORS: dict[str, str] = {
     "Strøm": "#c2ccd6",
     "Abonnementer": "#7fa0bd",
     "Renter og gebyrer": "#b5546a",
+    "Lånerenter": "#7a3b4a",
     "Gaver og veldedighet": "#c98ab5",
     "Annet": "#e3e6ea",
     "Inntekt": "#2f7a5e",
@@ -51,12 +52,13 @@ CATEGORY_ORDER = [
     "Strøm",
     "Abonnementer",
     "Renter og gebyrer",
+    "Lånerenter",
     "Gaver og veldedighet",
     "Annet",
 ]
 
 # Kategorier som regnes som "faste utgifter"
-FIXED_CATEGORIES = {"Boliglån og husleie", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
+FIXED_CATEGORIES = {"Boliglån og husleie", "Lånerenter", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
 
 # Nøkkelord -> kategori. Matches som delstreng, ufølsom for store/små bokstaver.
 # Rekkefølgen betyr noe: første treff vinner.
