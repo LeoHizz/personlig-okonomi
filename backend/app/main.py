@@ -109,6 +109,26 @@ def _disambiguate_tx_ids() -> None:
         log.warning("Rebuild etter tx-id-migrering feilet: %s", e)
 
 
+def _purge_pending() -> None:
+    """Engangs: fjern ventende (pending) transaksjoner fra arbeidstabellen OG kilde-
+    arkivet. Ventende skifter dato/beløp når de bokføres → ellers to rader for samme
+    kjøp (dobbeltføring). Kun bokførte er durabel kilde framover (se sync.sync_account).
+    De ventende ble fanget i tidligere synk; vi identifiserer arkiv-radene via status-
+    kolonnen i arbeidstabellen (arkivet selv bærer ikke bokført/ventende-skillet)."""
+    if db.get_setting("migr_purge_pending"):
+        return
+    pend = db.query("SELECT account_id, booking_date, amount FROM transactions WHERE status = 'pending'")
+    for r in pend:
+        # IS er NULL-trygg likhet i SQLite (matcher også tom/manglende bokføringsdato).
+        db.execute(
+            "DELETE FROM raw_transactions WHERE account_id = ? AND booking_date IS ? AND amount = ?",
+            (r["account_id"], r["booking_date"], r["amount"]),
+        )
+    n = db.execute_rowcount("DELETE FROM transactions WHERE status = 'pending'")
+    db.set_setting("migr_purge_pending", True)
+    log.info("Ventende transaksjoner fjernet (arbeidstabell + arkiv): %s rader", n)
+
+
 def _seed_raw_archive() -> None:
     """Seed kilde-arkivet fra rå-data vi ALLEREDE har lagret på transaksjonene.
     Ingen API-kall. Komplett backfill fra banken gjøres separat (krever kall)."""
@@ -164,6 +184,7 @@ async def _startup() -> None:
     _rename_category("Bolig og lån", "Boliglån og husleie")
     _namespace_tx_ids()
     _seed_raw_archive()
+    _purge_pending()        # fjern ventende (dobbeltførings-kilde) FØR rebuild
     _disambiguate_tx_ids()  # fikser kollisjon på gjentakende entry_reference + rebuild fra arkiv
     # Re-kategoriser eksisterende (ikke-manuelle) linjer når reglene er endret.
     if db.get_setting("rules_version") != categorize.RULES_VERSION:

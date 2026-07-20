@@ -200,11 +200,16 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, str(e))
         result["tx_error"] = str(e)
     else:
+        # Kun BOKFØRTE er durabel kilde. Ventende (pending) skifter dato/beløp/referanse
+        # når de bokføres → ville blitt en NY rad = dobbeltføring. De hentes uansett inn
+        # når de bokføres (1–3 dager). Vi ofrer «ferskest mulig» for korrekte tall.
+        booked = [t for t in txs if t.get("status") != "pending"]
         # 1) KILDE: arkiver rå-objektene urørt. 2) AVLEDET: oppdater arbeidstabellen.
-        raw_objs = [t.get("raw", t) for t in txs]
+        raw_objs = [t.get("raw", t) for t in booked]
         result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now)
         rawstore.record_run(account_id, "ok", now, 200, len(raw_objs))
-        result["transactions"] = _upsert_transactions(account_id, txs)
+        result["pending_skipped"] = len(txs) - len(booked)
+        result["transactions"] = _upsert_transactions(account_id, booked)
 
     db.execute("UPDATE accounts SET last_synced = ? WHERE id = ?", (now, account_id))
     return result
