@@ -57,6 +57,17 @@ Frontend: `app.js` (all logikk, ~1200 linjer), `styles.css`, `index.html` (shell
 - Frontend er bevisst rammeverksfri. Ikke innfør React/build-steg uten at Frode vil det.
 - All brukervendt tekst i appen er på norsk.
 - Ikke commit `.env`, `data/`, `_design/`, `*.zip` (allerede i `.gitignore`).
+- **Kjør ALLTID `/code-review` på ny/endret kode av noe omfang, og rett de reelle
+  funnene før du går videre.** (Etablert juli 2026 – har allerede fanget ekte bugs
+  i egen kode.) Merk påstander «verifisert» vs. «hypotese»; verifiser før du
+  konkluderer, særlig før du skylder på tredjepart (bank/API).
+- **Bank-API: aldri treffe Enable Banking live (test-kall, ekstra synk, backfill)
+  uten å varsle Frode og få klart ja FØRST.** Rene DB-spørringer/kodeendringer
+  trenger ikke varsel.
+- **Arkitektur: kilde før tolkning.** Rådata fra banken lagres urørt i
+  `raw_transactions` (append-only, innholds-hash). Alt appen viser deriveres FRA
+  det (`sync.rebuild_from_raw`, ingen API-kall). `sync_runs` logger hvert
+  synk-forsøk (ok/feil) – ikke svelg feil.
 
 ## Deploy (Frodes server)
 - **LXC (anbefalt)**: `proxmox-lxc-install.sh` (ny), `proxmox-lxc-update.sh`
