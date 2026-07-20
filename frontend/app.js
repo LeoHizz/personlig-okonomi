@@ -285,7 +285,7 @@ function categoryCard(d) {
   const grad = donutGradient(cats);
   const rows = cats
     .map(
-      (c) => `<div class="cat-row ${c.name === (sel && sel.name) ? "active" : ""}" onclick="selectCat('${esc(c.name)}')">
+      (c) => `<div class="cat-row ${c.name === (sel && sel.name) ? "active" : ""}" onclick="selectCat('${jsq(c.name)}')">
         <span class="cat-name"><span class="cat-dot" style="background:${c.color}"></span>${esc(c.name)}</span>
         <span class="cat-amt"><b>${c.amountFmt}</b> <span class="pct">${String(c.pct).replace(".", ",")} %</span></span>
       </div>`
@@ -307,7 +307,7 @@ function categoryCard(d) {
       <div class="bar"><div style="width:${barPct}%;background:${barColor}"></div></div>
       <div class="sel-delta" style="color:${deltaColor}">${esc(sel.delta)}</div>
       <div class="sel-items">${items || '<span style="color:#9aa0aa">Ingen transaksjoner registrert</span>'}</div>
-      <div class="sel-link" onclick="goTxForCat('${esc(sel.name)}')">Se transaksjoner i ${esc(sel.name.toLowerCase())} →</div>
+      <div class="sel-link" onclick="goTxForCat('${jsq(sel.name)}')">Se transaksjoner i ${esc(sel.name.toLowerCase())} →</div>
     </div>`;
   }
 
@@ -518,7 +518,7 @@ async function renderTransactions() {
   const allLabels = res.allLabels || [];
   const labelFilter = allLabels.length
     ? ["Alle", ...allLabels]
-        .map((l) => `<button class="person-chip ${(state.tx.label || "Alle") === l ? "active" : ""}" onclick="setTxLabel('${esc(l)}')">${l === "Alle" ? "Alle" : "🏷 " + esc(l)}</button>`)
+        .map((l) => `<button class="person-chip ${(state.tx.label || "Alle") === l ? "active" : ""}" onclick="setTxLabel('${jsq(l)}')">${l === "Alle" ? "Alle" : "🏷 " + esc(l)}</button>`)
         .join("")
     : "";
 
@@ -526,7 +526,7 @@ async function renderTransactions() {
   const catSelect = (t) => {
     const cats = allCats.includes(t.cat) ? allCats : [t.cat, ...allCats];
     const opts = cats.map((c) => `<option ${c === t.cat ? "selected" : ""}>${esc(c)}</option>`).join("");
-    return `<select class="tx-cat" onchange="changeTxCategory('${esc(t.id)}', this.value)"
+    return `<select class="tx-cat" onchange="changeTxCategory('${jsq(t.id)}', this.value)"
       style="font-size:12px;border:1px solid var(--line);border-radius:6px;padding:2px 4px;background:#fff;max-width:100%">${opts}</select>`;
   };
   const descCell = (t) => {
@@ -534,9 +534,9 @@ async function renderTransactions() {
     return `<span><span class="merch-link" onclick="openMerchant('${jsq(t.desc)}')" title="Se historikk for dette stedet">${esc(t.desc)}</span>${sub}</span>`;
   };
   const labelCell = (t) => {
-    const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${esc(t.id)}','${esc(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
+    const chips = (t.labels || []).map((l) => `<span class="tx-label" onclick="removeTxLabel('${jsq(t.id)}','${jsq(l)}')" title="Klikk for å fjerne">${esc(l)} ✕</span>`).join("");
     const opts = allLabels.map((l) => `<option>${esc(l)}</option>`).join("");
-    return `<span class="tx-labelcell">${chips}<select class="tx-addlabel" onchange="addTxLabel('${esc(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span>`;
+    return `<span class="tx-labelcell">${chips}<select class="tx-addlabel" onchange="addTxLabel('${jsq(t.id)}', this.value); this.selectedIndex=0" title="Legg til merkelapp"><option value="">🏷 +</option>${opts}</select></span>`;
   };
   const rows = res.rows
     .map(
@@ -688,7 +688,12 @@ async function saveBudget() {
     const v = Number(i.value);
     if (v > 0) budgets[i.dataset.cat] = v;
   });
-  await api.post("/api/settings", { budgets });
+  try {
+    await api.post("/api/settings", { budgets });
+  } catch (e) {
+    toast("Kunne ikke lagre budsjettet: " + (e.error || "ukjent feil"));
+    return;
+  }
   toast("Budsjett lagret ✓");
   await loadDashboard();
   renderBudget();
@@ -719,7 +724,7 @@ async function renderAnalysis() {
 
   const labelChips = (a.allLabels || []).length
     ? `<div class="chips" style="margin:2px 0 14px">${["Alle", ...a.allLabels]
-        .map((l) => `<button class="person-chip ${(a.label || "Alle") === l ? "active" : ""}" onclick="setAnalyseLabel('${esc(l)}')">${l === "Alle" ? "Alle merkelapper" : "🏷 " + esc(l)}</button>`)
+        .map((l) => `<button class="person-chip ${(a.label || "Alle") === l ? "active" : ""}" onclick="setAnalyseLabel('${jsq(l)}')">${l === "Alle" ? "Alle merkelapper" : "🏷 " + esc(l)}</button>`)
         .join("")}</div>`
     : "";
 
@@ -910,7 +915,7 @@ function clearCatFilter() { state.tx.category = null; renderTransactions(); }
 function clearFlowFilter() { state.tx.flow = null; renderTransactions(); }
 function selectCat(name) { state.sel = name; renderDashboard(); }
 function goTx() { state.view = "tx"; state.tx.category = null; state.tx.flow = null; render(); }
-function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.flow = null; state.tx.query = ""; state.tx.persons = []; render(); }
+function goTxForCat(name) { state.view = "tx"; state.tx.category = name; state.tx.flow = null; state.tx.query = ""; state.tx.period = "month"; state.tx.label = "Alle"; state.tx.persons = []; render(); }
 // Fra INN/UT-kortene: vis månedens inn- eller ut-transaksjoner (samme måned + personfilter som forsiden)
 function goTxFlow(flow) {
   state.view = "tx";
@@ -1050,7 +1055,7 @@ async function openConnect() {
     const res = await api.get("/api/institutions");
     document.getElementById("bankList").innerHTML = res.institutions
       .map(
-        (b) => `<div class="bank-item" onclick="connectBank('${esc(b.id)}')">
+        (b) => `<div class="bank-item" onclick="connectBank('${jsq(b.id)}')">
           ${b.logo ? `<img src="${esc(b.logo)}" alt="">` : '<div style="width:26px"></div>'}
           <span>${esc(b.name)}</span></div>`
       )
@@ -1127,7 +1132,7 @@ function renderSettings(tab) {
           <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-weight:700;font-size:13px;white-space:nowrap">${esc(a.balanceFmt || "—")}${a.balanceFmt && a.balanceFmt !== "—" ? " kr" : ""}</span>
-            ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${esc(a.id)}')" title="Hent saldo og nye transaksjoner fra banken">↻ Hent fra bank</button>`}
+            ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${jsq(a.id)}')" title="Hent saldo og nye transaksjoner fra banken">↻ Hent fra bank</button>`}
           </div>
         </div>
         <div class="grid3">
@@ -1176,7 +1181,7 @@ function renderSettings(tab) {
   } else if (tab === "likviditet") {
     const hist = s.liquidity_history || [];
     const rows = hist.length
-      ? hist.map((h) => `<div class="sel-item"><span>${esc(h.date)}</span><span style="display:inline-flex;gap:12px;align-items:center"><b>${numFmt(h.net)} kr</b><button class="row-del" onclick="delLiqPoint('${esc(h.date)}')" title="Slett">✕</button></span></div>`).join("")
+      ? hist.map((h) => `<div class="sel-item"><span>${esc(h.date)}</span><span style="display:inline-flex;gap:12px;align-items:center"><b>${numFmt(h.net)} kr</b><button class="row-del" onclick="delLiqPoint('${jsq(h.date)}')" title="Slett">✕</button></span></div>`).join("")
       : '<div class="muted" style="font-size:12.5px">Ingen punkter enda. Appen lagrer ett automatisk hver dag – legg gjerne inn noen historiske tall du kjenner.</div>';
     body = `<div class="sub" style="margin-bottom:10px">Netto likviditet (disponibelt − kortgjeld) kan ikke rekonstrueres pålitelig bakover, så grafen bygges fra faktiske målinger. Appen lagrer ett punkt automatisk hver dag. Vil du ha historikk med en gang, legg inn netto-tall du kjenner fra før (f.eks. fra nettbanken ved månedsslutt).</div>
       <div class="sel-items" style="margin-bottom:12px">${rows}</div>
@@ -1391,15 +1396,25 @@ async function saveSettings(tab) {
       byId[c.dataset.id] = byId[c.dataset.id] || {};
       byId[c.dataset.id].is_credit = c.checked ? 1 : 0;
     });
-    for (const [id, fields] of Object.entries(byId)) {
-      await api.post(`/api/accounts/${id}`, fields);
+    try {
+      for (const [id, fields] of Object.entries(byId)) {
+        await api.post(`/api/accounts/${id}`, fields);
+      }
+    } catch (e) {
+      toast("Kunne ikke lagre kontoene: " + (e.error || "ukjent feil"));
+      return;
     }
     toast("Kontoer lagret");
     closeModal();
     await loadDashboard();
     return;
   }
-  await api.post("/api/settings", payload);
+  try {
+    await api.post("/api/settings", payload);
+  } catch (e) {
+    toast("Kunne ikke lagre: " + (e.error || "ukjent feil"));
+    return;
+  }
   toast("Lagret");
   closeModal();
   await loadDashboard();
