@@ -102,6 +102,11 @@ def parse_csv(text: str) -> tuple[list[dict], list[str]]:
         return [], ["Fant ingen dato-kolonne. Sjekk at filen har en kolonneoverskrift."]
     if ai is None and oi is None and ii is None:
         return [], ["Fant ingen beløps-kolonne (Beløp, eller Inn/Ut)."]
+    # «Beløp inn»/«Beløp ut» inneholder delstrengen «beløp», så AMOUNT-fallbacken
+    # kan kuppe én av inn/ut-kolonnene og da forsvinner den andre (alle utgifter!).
+    # Hvis beløps-feltet egentlig ER en inn/ut-kolonne, ignorer det og bruk inn/ut.
+    if ai is not None and ai in (oi, ii):
+        ai = None
 
     out = []
     for r in rows[1:]:
@@ -114,11 +119,13 @@ def parse_csv(text: str) -> tuple[list[dict], list[str]]:
 
         if ai is not None:
             amount = parse_amount(cell(ai))
-        else:
+        elif ii is not None or oi is not None:
             inn = parse_amount(cell(ii)) or 0.0
             ut = parse_amount(cell(oi)) or 0.0
             # Ut oppgis ofte som positivt tall i egen kolonne -> gjør negativt
             amount = inn - abs(ut)
+        else:
+            continue
         if amount is None:
             continue
 

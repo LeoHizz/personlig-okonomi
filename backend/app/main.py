@@ -38,6 +38,8 @@ async def _auto_sync_loop() -> None:
         await asyncio.sleep(_seconds_until_hour(config.AUTO_SYNC_HOUR))
         if not config.provider_configured():
             continue
+        if db.is_demo():
+            continue  # aldri synk ekte bankdata inn i demo-basen
         try:
             res = await asyncio.to_thread(sync.sync_all)
             log.info("Auto-synk fullført: %s konto(er)", len(res.get("synced", [])))
@@ -194,6 +196,10 @@ async def _startup() -> None:
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
         db.set_setting("rules_version", categorize.RULES_VERSION)
+    if not config.APP_PASSWORD:
+        log.warning("APP_PASSWORD er IKKE satt – appen kjører uten tilgangsbeskyttelse "
+                    "(alle endepunkter åpne, inkl. sletting). Sett APP_PASSWORD i .env før "
+                    "du eksponerer appen utenfor hjemmenettet (se REMOTE_ACCESS.md).")
     if config.AUTO_SYNC:
         asyncio.create_task(_auto_sync_loop())
 
@@ -620,6 +626,10 @@ def reset_bank_accounts():
     for aid in ids:
         db.execute("DELETE FROM transactions WHERE account_id = ?", (aid,))
         db.execute("DELETE FROM balances WHERE account_id = ?", (aid,))
+        # Også kilde-arkivet + synk-logg, ellers gjenoppliver /api/rebuild de «slettede»
+        # transaksjonene som foreldreløse rader. Nystart skal være en ekte nystart.
+        db.execute("DELETE FROM raw_transactions WHERE account_id = ?", (aid,))
+        db.execute("DELETE FROM sync_runs WHERE account_id = ?", (aid,))
         db.execute("DELETE FROM accounts WHERE id = ?", (aid,))
     db.execute("DELETE FROM requisitions")
     return {"deleted": len(ids)}

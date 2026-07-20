@@ -224,7 +224,10 @@ def sync_all(force: bool = False) -> dict:
             results.append(sync_account(a["id"], force=force))
         except gc.Error as e:
             results.append({"account_id": a["id"], "error": str(e), "status": getattr(e, "status", None)})
-    db.set_setting("last_sync_at", gc.utc_now_iso())
+    # Stemple «sist synket» kun hvis minst én konto faktisk lyktes – ikke lyv om
+    # ferskhet når alt feilet (ellers viser statusen et falskt friskt tidspunkt).
+    if any(not r.get("error") and not r.get("tx_error") for r in results):
+        db.set_setting("last_sync_at", gc.utc_now_iso())
     return {"synced": results, "at": gc.utc_now_iso()}
 
 
