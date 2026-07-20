@@ -231,6 +231,22 @@ def execute_rowcount(sql: str, params: Iterable = ()) -> int:
     return cur.rowcount
 
 
+def upsert_many(table: str, rows: list[dict], conflict_col: str = "id") -> int:
+    """Batch-upsert i ÉN transaksjon. Alle rader må ha samme kolonner (fra rows[0])."""
+    if not rows:
+        return 0
+    cols = list(rows[0].keys())
+    placeholders = ", ".join("?" for _ in cols)
+    col_list = ", ".join(cols)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c != conflict_col)
+    sql = (f"INSERT INTO {table} ({col_list}) VALUES ({placeholders}) "
+           f"ON CONFLICT({conflict_col}) DO UPDATE SET {updates}")
+    conn = get_conn()
+    conn.executemany(sql, [[r[c] for c in cols] for r in rows])
+    conn.commit()
+    return len(rows)
+
+
 def insert_ignore_many(sql: str, rows: list) -> int:
     """Kjør mange INSERT (OR IGNORE) i ÉN transaksjon (ett commit). Returnerer
     antall faktisk innsatte rader (ignorerte teller ikke)."""

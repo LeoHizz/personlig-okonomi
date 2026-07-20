@@ -281,5 +281,12 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
     return out
 
 
+def normalize_raw(raw_obj: dict) -> dict:
+    """Offentlig: normaliser et lagret rå-objekt til app-formatet. GoCardless-arkivet
+    lagrer allerede normaliserte objekter, så dette er i praksis gjennomslag (defensivt
+    – sikrer at deriver-laget har et provider-uavhengig inntak)."""
+    return dict(raw_obj)
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

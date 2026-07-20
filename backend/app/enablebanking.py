@@ -249,6 +249,13 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
     return out
 
 
+def normalize_raw(raw_obj: dict) -> dict:
+    """Offentlig: normaliser et lagret rå-objekt (fra kilde-arkivet) til app-formatet.
+    Utleder status fra selve objektet. Brukes av deriver-laget (sync.rebuild_from_raw)."""
+    status_norm = "pending" if raw_obj.get("status") == "PDNG" else "booked"
+    return _normalize_tx(raw_obj, status_norm)
+
+
 def _normalize_tx(t: dict, status_norm: str) -> dict:
     amt = t.get("transaction_amount", {}) or {}
     try:
