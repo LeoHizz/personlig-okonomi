@@ -24,9 +24,13 @@ def _tx_id(account_id: str, t: dict) -> str:
     entry_reference kan GJENTAS (f.eks. faste lånetrekk der referansen = lånekonto-
     nummeret, likt hver måned). Uten datoen kollapser alle månedene til én rad."""
     ref = t.get("id")
-    if ref:
-        return f"{account_id}:{ref}:{t.get('booking_date') or ''}"
-    return _hash_tx(account_id, t)
+    if not ref:
+        return _hash_tx(account_id, t)
+    bd = t.get("booking_date") or ""
+    # Uten dato: IKKE etterlat en avsluttende «:» – da ville live-synk skrive
+    # «A:ref:» mens engangs-migreringen (som hopper over tomme datoer) beholder
+    # «A:ref», og de to id-ene ville kollidere til hver sin rad (duplikat).
+    return f"{account_id}:{ref}:{bd}" if bd else f"{account_id}:{ref}"
 
 
 def _bank_code(institution_name: str, institution_id: str) -> str:

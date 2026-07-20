@@ -96,7 +96,10 @@ def _disambiguate_tx_ids() -> None:
         "UPDATE transactions SET id = id || ':' || booking_date "
         "WHERE booking_date IS NOT NULL AND booking_date != '' "
         "AND id LIKE '%:%' "
-        "AND id NOT LIKE 'h/_%' ESCAPE '/' AND id NOT LIKE 'csv/_%' ESCAPE '/'"
+        "AND id NOT LIKE 'h/_%' ESCAPE '/' AND id NOT LIKE 'csv/_%' ESCAPE '/' "
+        # Idempotent: hopp over id-er som ALLEREDE ender på «:<booking_date>», så en
+        # ny oppstart etter krasj mellom UPDATE og flagg-settingen ikke dobbel-legger.
+        "AND id NOT LIKE '%:' || booking_date"
     )
     db.set_setting("migr_tx_datesuffix", True)
     try:
