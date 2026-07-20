@@ -124,25 +124,76 @@ def _income_expense(txs: list[dict]) -> tuple[float, float]:
     return income, expense
 
 
-def _loan_interest(liabilities: list[dict], month: str) -> float:
-    """Estimert lånerente for `month` (fra amortisering av auto-lån). Renter er
-    ekte kostnad og skal telle som forbruk; avdrag er sparing (holdes utenfor)."""
+def _months_range(start: str, count: int) -> list[str]:
+    """Liste med `count` måneder fra og med `start` (YYYY-MM)."""
+    try:
+        y, m = int(start[:4]), int(start[5:7])
+    except (ValueError, IndexError):
+        return []
+    out = []
+    for _ in range(count):
+        out.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
+def _loan_payment_months(pattern: str | None, persons=None) -> dict[str, float]:
+    """{YYYY-MM: sum faktisk betalt} fra utgående overføringer som matcher pattern."""
+    pattern = (pattern or "").strip().lower()
+    if not pattern:
+        return {}
+    persons = _norm_persons(persons)
+    like = f"%{pattern}%"
+    rows = db.query(
+        "SELECT substr(t.booking_date,1,7) AS m, t.amount AS amt, a.owner AS owner "
+        "FROM transactions t JOIN accounts a ON a.id = t.account_id "
+        "WHERE a.hidden = 0 AND t.amount < 0 AND (lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ?)",
+        (like, like),
+    )
+    out: dict[str, float] = defaultdict(float)
+    for r in rows:
+        if persons and (r["owner"] or "") not in persons:
+            continue
+        if r["m"]:
+            out[r["m"]] += -r["amt"]
+    return dict(out)
+
+
+def _amortize(lb: dict, month: str, payments: dict | None = None) -> tuple[float, float]:
+    """(restgjeld, månedens rente) for `month`. Bruker FAKTISKE betalinger
+    (payments: {YYYY-MM: beløp}) der de finnes, ellers registrert terminbeløp –
+    så amortiseringen (og rente-estimatet) følger virkeligheten, også ved
+    flytende rente / varierende terminbeløp."""
+    rate = _parse_rate(lb.get("rate"))
+    r = rate / 12.0 if rate > 0 else 0.0
+    bal = float(lb.get("start_balance", 0) or 0)
+    monthly = float(lb.get("monthly_payment", 0) or 0)
+    start = lb.get("start_date", "") or month
+    elapsed = max(0, _months_between(start, month))
+    for mm in _months_range(start, elapsed):
+        interest = bal * r
+        pay = (payments or {}).get(mm)
+        if pay is None:
+            pay = monthly
+        bal -= max(0.0, pay - interest)
+        if bal <= 0:
+            bal = 0.0
+            break
+    return max(0.0, bal), max(0.0, bal * r)
+
+
+def _loan_interest(liabilities: list[dict], month: str, pay_map: dict | None = None) -> float:
+    """Estimert lånerente for `month` (auto-lån). Renter = ekte kostnad → forbruk;
+    avdrag er sparing. Bruker faktiske betalinger via pay_map når tilgjengelig."""
     total = 0.0
     for lb in liabilities or []:
-        if not lb.get("auto"):
+        if not lb.get("auto") or _parse_rate(lb.get("rate")) <= 0:
             continue
-        rate = _parse_rate(lb.get("rate"))
-        if rate <= 0:
-            continue
-        r = rate / 12.0
-        bal = float(lb.get("start_balance", 0) or 0)
-        monthly = float(lb.get("monthly_payment", 0) or 0)
-        for _ in range(max(0, _months_between(lb.get("start_date", ""), month))):
-            bal -= monthly - bal * r
-            if bal <= 0:
-                bal = 0.0
-                break
-        total += max(0.0, bal * r)
+        pat = (lb.get("pay_match") or "").strip().lower()
+        _, interest = _amortize(lb, month, (pay_map or {}).get(pat))
+        total += interest
     return total
 
 
@@ -205,6 +256,13 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     household = db.get_setting("household_name", "Min økonomi")
     savings_goal = db.get_setting("savings_goal_pct", 20)
 
+    # Faktiske lånebetalinger per mnd (fra overføringene) – driver amortisering + rente.
+    loan_pay_map: dict[str, dict] = {}
+    for lb in manual_liabilities:
+        pat = (lb.get("pay_match") or "").strip().lower()
+        if lb.get("auto") and pat and pat not in loan_pay_map:
+            loan_pay_map[pat] = _loan_payment_months(pat, persons)
+
     # --- kategorier ---
     cat_totals: dict[str, float] = defaultdict(float)
     cat_items: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(lambda: [0.0, 0]))
@@ -220,7 +278,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
 
     # Estimerte lånerenter (fra registrerte lån) telles som forbruk – de er en ekte
     # kostnad. Avdrag holdes utenfor (sparing, teller i netto formue).
-    loan_interest = _loan_interest(manual_liabilities, month)
+    loan_interest = _loan_interest(manual_liabilities, month, loan_pay_map)
     if loan_interest > 0:
         cat_totals["Lånerenter"] += loan_interest
 
@@ -398,24 +456,11 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     for lb in manual_liabilities:
         estimated = False
         if lb.get("auto"):
-            # Estimert restgjeld via amortisering: hver måned er en del av terminbeløpet
-            # renter (saldo × rente/12) og resten avdrag. Uten rente: lineær nedbetaling.
+            # Estimert restgjeld via amortisering (renter + avdrag), drevet av
+            # FAKTISKE betalinger der de finnes (ellers registrert terminbeløp).
+            pat = (lb.get("pay_match") or "").strip().lower()
+            balance, _int = _amortize(lb, month, loan_pay_map.get(pat))
             start_balance = float(lb.get("start_balance", 0) or 0)
-            monthly = float(lb.get("monthly_payment", 0) or 0)
-            elapsed = max(0, _months_between(lb.get("start_date", ""), month))
-            rate = _parse_rate(lb.get("rate"))
-            bal = start_balance
-            if rate > 0:
-                r = rate / 12.0
-                for _ in range(elapsed):
-                    principal = monthly - bal * r  # avdrag = terminbeløp − renter
-                    bal -= principal
-                    if bal <= 0:
-                        bal = 0.0
-                        break
-            else:
-                bal = start_balance - monthly * elapsed
-            balance = max(0.0, bal)
             original = float(lb.get("original", 0) or 0) or start_balance or balance
             estimated = True
         else:
@@ -447,7 +492,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     cashflow = []
     for m in _prev_months(month, 7):
         inc, spend = _income_spending(_month_transactions(m, persons))
-        net = inc - spend - _loan_interest(manual_liabilities, m)
+        net = inc - spend - _loan_interest(manual_liabilities, m, loan_pay_map)
         cashflow.append(
             {
                 "label": _month_label(m).split()[0][:3],
@@ -463,7 +508,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     for mm in range(1, mo + 1):
         ym = f"{yr:04d}-{mm:02d}"
         inc, spend = _income_spending(_month_transactions(ym, persons))
-        ytd_net += inc - spend - _loan_interest(manual_liabilities, ym)
+        ytd_net += inc - spend - _loan_interest(manual_liabilities, ym, loan_pay_map)
 
     # Kombinert trend (12 mnd, forankret til i dag): sparing (flyt, stolper) +
     # netto likviditet (nivå, linje – kun der vi har øyeblikksbilde).
@@ -471,7 +516,7 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     trend = []
     for m in _prev_months(now_month, 12):
         inc, spend = _income_spending(_month_transactions(m, persons))
-        spend += _loan_interest(manual_liabilities, m)
+        spend += _loan_interest(manual_liabilities, m, loan_pay_map)
         p = snap_by_month.get(m)
         trend.append({
             "label": _month_label(m).split()[0][:3],
