@@ -1107,11 +1107,13 @@ function renderSettings(tab) {
     const acctCounts = {};
     s.accounts.forEach((a) => { const k = acctKey(a); if (k) acctCounts[k] = (acctCounts[k] || 0) + 1; });
     const anyDup = Object.values(acctCounts).some((n) => n > 1);
-    const toolbar = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    const toolbar = `<div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+      <button class="btn-green" onclick="openConnect()" title="Koble til en ny bank – eller koble en eksisterende til på nytt (fornyer samtykket). Beholder navn, eier, etikett og innstillinger.">+ Koble til / re-koble bank</button>
       <button class="chip-btn" onclick="refreshAllAccounts()">↻ Hent alle fra bank</button>
       ${anyDup ? `<button class="btn-green" onclick="dedupeAccounts()">🧹 Fjern duplikater (slett)</button>` : ""}
       <button class="chip-btn" style="margin-left:auto;border-color:#e0a3a3;color:#b5546a" onclick="resetBankAccounts()">⚠ Nullstill bankkontoer</button>
-    </div>`;
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:12px">Samtykke utløpt eller feil på henting? Trykk <b>«Koble til / re-koble bank»</b> og velg banken på nytt – oppsettet ditt beholdes (ikke «Nullstill»).</div>`;
     body = toolbar + (s.accounts.length
       ? s.accounts
           .map(
