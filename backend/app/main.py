@@ -91,7 +91,7 @@ def _seed_raw_archive() -> None:
     Ingen API-kall. Komplett backfill fra banken gjøres separat (krever kall)."""
     if db.get_setting("migr_raw_seed"):
         return
-    at = datetime.now().isoformat()
+    at = gc.utc_now_iso()  # konsistent UTC-tidsstempel (som synken bruker)
     n = 0
     for r in db.query("SELECT account_id, raw FROM transactions "
                       "WHERE raw IS NOT NULL AND raw NOT IN ('', 'null')"):

@@ -229,3 +229,13 @@ def execute_rowcount(sql: str, params: Iterable = ()) -> int:
     cur = conn.execute(sql, tuple(params))
     conn.commit()
     return cur.rowcount
+
+
+def insert_ignore_many(sql: str, rows: list) -> int:
+    """Kjør mange INSERT (OR IGNORE) i ÉN transaksjon (ett commit). Returnerer
+    antall faktisk innsatte rader (ignorerte teller ikke)."""
+    conn = get_conn()
+    before = conn.total_changes
+    conn.executemany(sql, [tuple(r) for r in rows])
+    conn.commit()
+    return conn.total_changes - before

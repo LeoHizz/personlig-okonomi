@@ -214,7 +214,8 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
     out: list[dict] = []
     for status_filter, status_norm in (("BOOK", "booked"), ("PDNG", "pending")):
         cont = None
-        for _ in range(20):  # sikkerhetsgrense mot uendelig paginering
+        pages = 0
+        while True:
             params = {"transaction_status": status_filter}
             if date_from and status_filter == "BOOK":
                 params["date_from"] = date_from
@@ -234,7 +235,16 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
             for t in data.get("transactions", []) or []:
                 out.append(_normalize_tx(t, status_norm))
             cont = data.get("continuation_key")
+            pages += 1
             if not cont:
+                break
+            # Backstop mot uendelig paginering. Nås dette med gjenstående cont, er
+            # uttrekket UFULLSTENDIG – da må vi synliggjøre det, ikke kutte stille.
+            if pages >= 1000:
+                if status_filter == "BOOK":
+                    raise ProviderError(
+                        "Avbrutt paginering – uttrekket kan være ufullstendig.",
+                        502, {"pages": pages, "account_id": account_id})
                 break
     return out
 
