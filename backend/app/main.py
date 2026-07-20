@@ -219,6 +219,12 @@ def source_status():
     return {"archive": rawstore.stats(), "runs": rawstore.last_runs(30)}
 
 
+@app.post("/api/rebuild")
+def rebuild():
+    """Bygg arbeidstabellen på nytt fra kilde-arkivet (ingen API-kall)."""
+    return sync.rebuild_from_raw()
+
+
 @app.get("/api/loan-history")
 def loan_history(pattern: str, persons: str | None = None):
     return aggregate.build_loan_history(pattern, persons)

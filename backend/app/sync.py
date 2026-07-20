@@ -209,3 +209,53 @@ def sync_all(force: bool = False) -> dict:
             results.append({"account_id": a["id"], "error": str(e), "status": getattr(e, "status", None)})
     db.set_setting("last_sync_at", gc.utc_now_iso())
     return {"synced": results, "at": gc.utc_now_iso()}
+
+
+def rebuild_from_raw() -> dict:
+    """AVLEDET-lag: bygg arbeidstabellen `transactions` på nytt FRA kilde-arkivet
+    (raw_transactions). Ingen API-kall – gjenkjørbar når kategori-/tolknings-logikk
+    endres. Bevarer manuelle kategorier og per-transaksjon-merkelapper. Rører ikke
+    CSV-importerte rader (de ligger ikke i bank-arkivet). Ikke-destruktiv (upsert)."""
+    from . import enablebanking  # provider-normalisering av rå-objektene
+
+    # Bevar brukerens overstyringer, nøklet på (fremtidig) tx-id.
+    keep_cat, keep_labels = {}, {}
+    for r in db.query("SELECT id, category, category_source, labels FROM transactions"):
+        if r["category_source"] == "manual":
+            keep_cat[r["id"]] = r["category"]
+        if r["labels"] and r["labels"] not in ("", "null", "[]"):
+            keep_labels[r["id"]] = r["labels"]
+
+    count = 0
+    for row in db.query("SELECT account_id, raw FROM raw_transactions ORDER BY booking_date"):
+        try:
+            obj = json.loads(row["raw"])
+        except (ValueError, TypeError):
+            continue
+        account_id = row["account_id"]
+        status_norm = "pending" if obj.get("status") == "PDNG" else "booked"
+        t = enablebanking._normalize_tx(obj, status_norm)
+        ref = t.get("id")
+        tx_id = f"{account_id}:{ref}" if ref else _hash_tx(account_id, t)
+
+        if tx_id in keep_cat:
+            category, source = keep_cat[tx_id], "manual"
+        else:
+            category = categorize.categorize(t.get("counterparty", ""), t.get("remittance", ""), t.get("amount", 0.0))
+            source = "auto"
+
+        record = {
+            "id": tx_id, "account_id": account_id,
+            "booking_date": t.get("booking_date"),
+            "value_date": t.get("value_date") or t.get("booking_date"),
+            "amount": t.get("amount", 0.0), "currency": t.get("currency", "NOK"),
+            "counterparty": t.get("counterparty", ""), "remittance": t.get("remittance", ""),
+            "category": category, "category_source": source,
+            "status": t.get("status", "booked"),
+            "raw": json.dumps(obj, ensure_ascii=False),
+        }
+        if tx_id in keep_labels:
+            record["labels"] = keep_labels[tx_id]
+        db.upsert("transactions", record)
+        count += 1
+    return {"rebuilt": count}
