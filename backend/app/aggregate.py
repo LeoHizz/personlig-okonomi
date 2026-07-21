@@ -178,6 +178,8 @@ def _amortize(lb: dict, month: str, payments: dict | None = None) -> tuple[float
     bal = float(lb.get("start_balance", 0) or 0)
     monthly = float(lb.get("monthly_payment", 0) or 0)
     start = lb.get("start_date", "") or month
+    if _months_between(start, month) < 0:
+        return bal, 0.0  # lånet har ikke startet ennå → ingen rente denne måneden
     elapsed = max(0, _months_between(start, month))
     for mm in _months_range(start, elapsed):
         interest = bal * r
@@ -1105,6 +1107,25 @@ def build_budget_matrix(year: int | None = None) -> dict:
     actuals = _category_month_actuals(year)
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
     month_names = ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Des"]
+
+    # Lånerenter er modellert (ikke en transaksjon) – injiser den per måned så
+    # regnskaps-matrisen blir konsistent med forsiden. Drevet av faktiske betalinger.
+    manual_liabilities = db.get_setting("manual_liabilities", []) or []
+    loan_pay_map: dict[str, dict] = {}
+    for lb in manual_liabilities:
+        pat = (lb.get("pay_match") or "").strip().lower()
+        if lb.get("auto") and pat and pat not in loan_pay_map:
+            loan_pay_map[pat] = _loan_payment_months(pat)
+    # Kun måneder med FAKTISK lånebetaling – ikke projiser inn i tomme/framtidige måneder.
+    paid_months = set()
+    for mp in loan_pay_map.values():
+        paid_months.update(mp.keys())
+    for m in months:
+        if m not in paid_months:
+            continue
+        li = _loan_interest(manual_liabilities, m, loan_pay_map)
+        if li > 0:
+            actuals[("Lånerenter", m)] = actuals.get(("Lånerenter", m), 0.0) + li
 
     # hvilke måneder har data i dette året
     data_months = {m for m in months if any(k[1] == m for k in actuals)}
