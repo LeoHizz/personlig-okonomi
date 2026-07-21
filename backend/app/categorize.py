@@ -15,7 +15,7 @@ CATEGORY_COLORS: dict[str, str] = {
     "Transport": "#5d8fb8",
     "Fritid": "#8fb4a3",
     "Restaurant og kafé": "#a9c0b4",
-    "Helse": "#6ba3a0",
+    "Helse og velvære": "#6ba3a0",
     "Klær og sko": "#c99a6a",
     "Reise og ferie": "#6d86c9",
     "Hus og hjem": "#9c8f7a",
@@ -32,7 +32,7 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 7
+RULES_VERSION = 8
 
 CATEGORY_ORDER = [
     "Kommunale avgifter",
@@ -43,7 +43,7 @@ CATEGORY_ORDER = [
     "Transport",
     "Fritid",
     "Restaurant og kafé",
-    "Helse",
+    "Helse og velvære",
     "Klær og sko",
     "Reise og ferie",
     "Hus og hjem",
@@ -215,19 +215,26 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("feiing", "Kommunale avgifter"),
     ("eiendomsskatt", "Kommunale avgifter"),
     ("kommune", "Kommunale avgifter"),
-    # Helse
-    ("apotek", "Helse"),
-    ("vitusapotek", "Helse"),
-    ("boots", "Helse"),
-    ("farmasi", "Helse"),
-    ("tannlege", "Helse"),
-    ("legevakt", "Helse"),
-    ("legekontor", "Helse"),
-    ("fysioterap", "Helse"),
-    ("optiker", "Helse"),
-    ("brilleland", "Helse"),
-    ("synsam", "Helse"),
-    ("specsavers", "Helse"),
+    # Helse og velvære
+    ("apotek", "Helse og velvære"),
+    ("vitusapotek", "Helse og velvære"),
+    ("boots", "Helse og velvære"),
+    ("farmasi", "Helse og velvære"),
+    ("tannlege", "Helse og velvære"),
+    ("legevakt", "Helse og velvære"),
+    ("legekontor", "Helse og velvære"),
+    ("fysioterap", "Helse og velvære"),
+    ("optiker", "Helse og velvære"),
+    ("brilleland", "Helse og velvære"),
+    ("synsam", "Helse og velvære"),
+    ("specsavers", "Helse og velvære"),
+    # velvære: frisør, hudpleie o.l.
+    ("frisør", "Helse og velvære"),
+    ("frisor", "Helse og velvære"),
+    ("barber", "Helse og velvære"),
+    ("hudpleie", "Helse og velvære"),
+    ("velvære", "Helse og velvære"),
+    ("velvare", "Helse og velvære"),
     # Klær og sko
     ("h&m", "Klær og sko"),
     ("h & m", "Klær og sko"),

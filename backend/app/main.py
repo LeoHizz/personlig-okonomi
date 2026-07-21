@@ -208,6 +208,7 @@ async def _startup() -> None:
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
     _rename_category("Boliglån og husleie", "Overføring")  # lån er ikke forbruk (avdrag=sparing)
+    _rename_category("Helse", "Helse og velvære")  # utvidet til å favne frisør/hudpleie
     _namespace_tx_ids()
     _seed_raw_archive()
     _annotate_pending()     # merk ventende i arkiv + fjern fra arbeidstabell FØR rebuild
