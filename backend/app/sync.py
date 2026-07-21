@@ -142,7 +142,11 @@ def register_accounts(query: dict) -> list[str]:
         # STABIL id: kontonummeret. Da oppdaterer re-tilkobling SAMME konto
         # (uansett hvem som logger inn / hvilken økt), i stedet for å lage duplikat.
         stable_id = ("eb:" + acctno) if acctno else uid
-        prior = by_number.get(acctno) if acctno else next((r for r in all_accts if r["id"] == stable_id), None)
+        # Match på kontonummer først; fall alltid tilbake til stabil-id (samme rad vi
+        # er i ferd med å overskrive) så eier/etikett arves selv om kontonummeret
+        # mangler/er blanket – ellers nullstilles de ved re-tilkobling.
+        prior = (by_number.get(acctno) if acctno else None) or \
+            next((r for r in all_accts if r["id"] == stable_id), None)
         keep_name = prior["name"] if prior else acc.get("name", "Konto")
         keep_owner = prior["owner"] if prior else "Felles"
         keep_code = prior["bank_code"] if prior else code
