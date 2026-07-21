@@ -184,8 +184,8 @@ def _apply_loan_transfers() -> int:
         total += db.execute_rowcount(
             "UPDATE transactions SET category = 'Overføring' "
             "WHERE amount < 0 AND category_source != 'manual' AND category != 'Overføring' "
-            "AND (lower(remittance) LIKE ? OR lower(counterparty) LIKE ?)",
-            (like, like),
+            "AND (lower(remittance) LIKE ? OR lower(counterparty) LIKE ? OR lower(id) LIKE ?)",
+            (like, like, like),
         )
     return total
 
