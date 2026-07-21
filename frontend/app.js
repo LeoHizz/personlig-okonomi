@@ -47,6 +47,14 @@ function norAccount(iban, bban) {
   return d || "";
 }
 
+// Les-vennlig dato/tid fra ISO-tidsstempel (norsk format).
+function fmtDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(String(iso).slice(0, 16).replace("T", " "));
+  return d.toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 // Trygg verdi for bruk som streng-argument inne i onclick="fn('…')"
 const jsq = (s) =>
   String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -337,25 +345,28 @@ function moneyCard(d) {
   const xAt = (i) => padL + colW * i + colW / 2;
   const kfmt = (v) => (v < 0 ? "−" : "") + Math.round(Math.abs(v) / 1000) + "k";
 
-  const hasNeg = T.some((t) => t.flow < 0);
-  const maxFlow = Math.max(1, ...T.map((t) => Math.abs(t.flow)));
-  const flowZeroFrac = hasNeg ? 0.62 : 0.92;       // gi plass under 0-linja kun ved underskudd
-  const yFlowZero = padT + plotH * flowZeroFrac;
-  const upSpace = yFlowZero - padT, downSpace = padT + plotH - yFlowZero;
+  // Én felles skala (px per krone) opp OG ned, så et overskudd og et like stort
+  // underskudd tegnes med nøyaktig samme høyde. 0-linja plasseres etter faktisk
+  // topp/bunn, så hele høyden utnyttes uten å forvrenge proporsjonene.
+  const maxPos = Math.max(0, ...T.map((t) => t.flow));
+  const maxNeg = Math.max(0, ...T.map((t) => -t.flow));
+  const hasNeg = maxNeg > 0;
+  const flowScale = plotH / Math.max(1, maxPos + maxNeg);
+  const yFlowZero = padT + maxPos * flowScale;
 
   const bars = T.map((t, i) => {
     const bw = Math.min(24, colW * 0.5);
     let y, h;
-    if (t.flow >= 0) { h = (t.flow / maxFlow) * upSpace; y = yFlowZero - h; }
-    else { h = (Math.abs(t.flow) / maxFlow) * downSpace; y = yFlowZero; }
+    if (t.flow >= 0) { h = t.flow * flowScale; y = yFlowZero - h; }
+    else { h = -t.flow * flowScale; y = yFlowZero; }
     const color = t.flow < 0 ? "var(--amber-bright)" : "var(--green)";
     return `<rect x="${(xAt(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${color}" opacity="${t.current ? 1 : 0.8}"><title>${esc(t.label)}: overskudd ${numFmt(t.flow)}</title></rect>`;
   }).join("");
 
-  // venstre akse (overskudd)
-  let leftAxis = `<text x="${padL - 5}" y="${(padT + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">+${kfmt(maxFlow)}</text>`
+  // venstre akse (overskudd) – topp = største overskudd, bunn = største underskudd
+  let leftAxis = (maxPos > 0 ? `<text x="${padL - 5}" y="${(padT + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">+${kfmt(maxPos)}</text>` : "")
     + `<text x="${padL - 5}" y="${(yFlowZero + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">0</text>`;
-  if (hasNeg) leftAxis += `<text x="${padL - 5}" y="${(padT + plotH).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">−${kfmt(maxFlow)}</text>`;
+  if (hasNeg) leftAxis += `<text x="${padL - 5}" y="${(padT + plotH).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">−${kfmt(maxNeg)}</text>`;
 
   const showLine = !L.filtered;
   const liqPts = T.map((t, i) => ({ i, v: t.liq })).filter((p) => p.v != null);
@@ -439,11 +450,14 @@ function loansCard(d) {
   const items = d.loans
     .map(
       (l) => {
-      const clk = l.payMatch ? ` class="merch-link" onclick="openLoanHistory('${jsq(l.payMatch)}','${jsq(l.name)}')" title="Se faktiske betalinger"` : "";
+      const histLink = l.payMatch
+        ? `<span class="sel-link" onclick="openLoanHistory('${jsq(l.payMatch)}','${jsq(l.name)}')">Se betalinger (rente/avdrag) →</span>`
+        : `<span class="sel-link" onclick="openSettings('lan')">Sett «Gjenkjenn betalinger» for graf →</span>`;
       return `<div style="margin-top:12px">
-      <div class="loan-name"><span><span${clk}>${esc(l.name)}</span> <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span>${l.estimated ? ` <span class="acc-tag" style="background:#fff3d6;color:#8a6d1a">estimert</span>` : ""}</span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
+      <div class="loan-name"><span>${esc(l.name)} <span class="acc-tag">${esc(l.tag)}${l.rate ? " · " + esc(l.rate) + " %" : ""}</span>${l.estimated ? ` <span class="acc-tag" style="background:#fff3d6;color:#8a6d1a">estimert</span>` : ""}</span><span style="font-weight:700;color:var(--amber)">−${l.balanceFmt}</span></div>
       <div class="bar" style="margin-top:10px"><div style="width:${l.paidPct}%;background:var(--navy)"></div></div>
       <div class="loan-sub">${l.paidPct} % nedbetalt${l.estimated && l.monthlyPayment ? " · " + numFmt(l.monthlyPayment) + "/mnd" : ""}${l.note ? " · " + esc(l.note) : ""}</div>
+      <div class="loan-sub" style="margin-top:5px">${histLink}</div>
     </div>`;
       }
     )
@@ -480,7 +494,9 @@ function budgetCard(d) {
 
 /* ---------- transactions view ---------- */
 
+let txRenderSeq = 0;
 async function renderTransactions() {
+  const seq = ++txRenderSeq;  // nyeste render vinner – eldre (tregt) svar forkastes
   let res;
   try {
     const params = new URLSearchParams();
@@ -495,6 +511,7 @@ async function renderTransactions() {
   } catch (e) {
     res = { rows: [], count: 0, persons: ["Alle"], allLabels: [] };
   }
+  if (seq !== txRenderSeq) return;  // en nyere render startet mens vi ventet – dropp
 
   const chips = res.persons
     .map((p) => {
@@ -983,18 +1000,33 @@ async function openLoanHistory(pattern, name) {
   }
   const mx = Math.max(1, m.max);
   const bars = m.series
-    .map((s) => `<div style="height:${Math.max(3, Math.round((s.amount / mx) * 100))}%;background:var(--amber-bright);opacity:${s.amount ? "1" : "0.2"}" title="${esc(s.label)}: ${s.amount}"></div>`)
+    .map((s) => {
+      if (!s.amount) return `<div style="height:3%;background:var(--amber-bright);opacity:0.2"></div>`;
+      const h = Math.max(3, Math.round((s.amount / mx) * 100));
+      if (m.hasSplit && s.interest != null) {
+        // Avdrag (navy) øverst, rente (amber) nederst – proporsjonalt i stolpen.
+        const iPct = Math.round((s.interest / s.amount) * 100);
+        return `<div style="height:${h}%;display:flex;flex-direction:column" title="${esc(s.label)}: rente ${numFmt(s.interest)} + avdrag ${numFmt(s.principal)} kr">
+          <div style="height:${100 - iPct}%;background:var(--navy)"></div>
+          <div style="height:${iPct}%;background:var(--amber-bright)"></div>
+        </div>`;
+      }
+      return `<div style="height:${h}%;background:var(--amber-bright)" title="${esc(s.label)}: ${numFmt(s.amount)} kr"></div>`;
+    })
     .join("");
   const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
   const recent = m.recent
     .map((r) => `<div class="sel-item"><span>${esc(r.date)} ${esc(r.desc)} <span class="muted">${esc(r.acct)}</span></span><b>${esc(r.amtFmt)}</b></div>`)
     .join("") || '<div class="muted" style="font-size:12.5px">Fant ingen betalinger som matcher. Sjekk «Gjenkjenn betalinger» på lånet (Innstillinger → Lån).</div>';
+  const splitSub = m.hasSplit
+    ? `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;background:var(--navy);border-radius:2px;display:inline-block"></span>avdrag ${m.totalPrincipalFmt} · <span style="width:9px;height:9px;background:var(--amber-bright);border-radius:2px;display:inline-block"></span>rente ${m.totalInterestFmt}</span>`
+    : "rente + avdrag samlet";
   $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
       <button class="modal-close" onclick="closeModal()">✕</button>
       <h2>${esc(name)} — faktiske betalinger</h2>
       <div class="sub">${m.count} betalinger · totalt ${m.totalFmt} kr · snitt ${m.avgFmt} kr/mnd</div>
-      <div class="cf-head" style="margin-top:16px"><div class="card-title">Betalt per måned</div><div class="cf-sub">rente + avdrag samlet</div></div>
+      <div class="cf-head" style="margin-top:16px"><div class="card-title">Betalt per måned</div><div class="cf-sub">${splitSub}</div></div>
       <div class="cf-bars" style="gap:6px;margin-top:10px">${bars}</div>
       <div class="cf-labels" style="gap:6px;font-size:10px">${labels}</div>
       <div style="margin-top:18px"><div class="card-title">Siste betalinger</div><div style="margin-top:8px">${recent}</div></div>
@@ -1129,7 +1161,10 @@ function renderSettings(tab) {
             const tag = [esc(a.institution_name || a.institution_id || ""), esc(acctNo)].filter(Boolean).join(" · ");
             return `<div style="border:1px solid ${isDup ? "#e6c766" : "var(--line)"};border-radius:10px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
+          <div>
+            <div style="font-size:12.5px;font-weight:600">${esc(a.name)} <span class="acc-tag">${tag}</span>${isDup ? ` <span class="acc-tag" style="background:#fff4d6;color:#8a6d1a">mulig duplikat</span>` : ""}</div>
+            ${isCsv ? "" : `<div style="font-size:11px;color:#9aa0aa;margin-top:2px">${a.lastOkSync ? "✓ Sist vellykket synk " + fmtDateTime(a.lastOkSync) : "Aldri synket vellykket"}</div>`}
+          </div>
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-weight:700;font-size:13px;white-space:nowrap">${esc(a.balanceFmt || "—")}${a.balanceFmt && a.balanceFmt !== "—" ? " kr" : ""}</span>
             ${isCsv ? "" : `<button class="chip-btn" onclick="refreshAccount('${jsq(a.id)}')" title="Hent saldo og nye transaksjoner fra banken">↻ Hent fra bank</button>`}
