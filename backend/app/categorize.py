@@ -5,6 +5,8 @@ Brukeren kan overstyre og legge til egne regler i innstillinger.
 """
 from __future__ import annotations
 
+import re
+
 # Kategori -> farge (samme palett som designet)
 CATEGORY_COLORS: dict[str, str] = {
     "Kommunale avgifter": "#3d6b7a",
@@ -359,7 +361,9 @@ def learn_rule(counterparty: str | None, category: str) -> None:
     kjennes igjen automatisk neste gang."""
     from . import db
 
-    pattern = " ".join((counterparty or "").split()).lower()
+    # Lagre butikk-nøkkelen (uten referanse-hale) så nær-identiske linjer – nå og
+    # senere – kjennes igjen automatisk, ikke bare den ene med akkurat samme referanse.
+    pattern = _merchant_key(counterparty)
     if not pattern:
         return
     rules = db.get_setting("category_rules", []) or []
@@ -377,7 +381,8 @@ def apply_pattern_to_existing(pattern: str, category: str) -> int:
     Brukes når man retter én kategori – påvirker bare samme sted."""
     from . import db
 
-    pat = " ".join((pattern or "").split()).lower()
+    pat = _norm(pattern)
+    pat_key = _merchant_key(pattern)
     if not pat:
         return 0
     rows = db.query("SELECT id, counterparty, remittance, category_source FROM transactions")
@@ -385,8 +390,7 @@ def apply_pattern_to_existing(pattern: str, category: str) -> int:
     for r in rows:
         if r["category_source"] == "manual":
             continue
-        text = " ".join(f"{r['counterparty'] or ''} {r['remittance'] or ''}".split()).lower()
-        if pat in text:
+        if _sibling_match(pat, pat_key, r):
             db.execute("UPDATE transactions SET category = ? WHERE id = ?", (category, r["id"]))
             changed += 1
     return changed
@@ -401,6 +405,37 @@ def _row_text(r) -> str:
     return _norm(f"{r['counterparty'] or ''} {r['remittance'] or ''}")
 
 
+# Betalingsformidlere o.l. som IKKE identifiserer en butikk alene – aldri
+# generaliser på disse (ellers havner alt betalt via samme formidler i én bås).
+_GENERIC_MERCHANT = {
+    "vipps", "klarna", "paypal", "swish", "stripe", "nets", "izettle", "zettle",
+    "sumup", "square", "mobilepay", "apple pay", "google pay",
+}
+_TRAILING_REF = re.compile(r"[ ·:*/,\-]*\d[\d ]*$")
+
+
+def _merchant_key(text: str | None) -> str:
+    """Butikk-nøkkel: motpartsnavn uten etterfølgende referanse-/nummerhale
+    (f.eks. «Circle K 0821» → «circle k», «NYX*Golf·946» → «nyx*golf»). Brukes
+    for å fange nær-identiske linjer fra samme sted. Faller tilbake til hele
+    navnet hvis stripping ville gitt noe for kort eller generisk – da unngår vi
+    å blande ulike steder."""
+    t = _norm(text)
+    stripped = _TRAILING_REF.sub("", t).strip(" ·:*/,-")
+    if len(stripped) >= 4 and stripped not in _GENERIC_MERCHANT and re.search(r"[a-zæøå]{3,}", stripped):
+        return stripped
+    return t
+
+
+def _sibling_match(pat_full: str, pat_key: str, r) -> bool:
+    """Om raden hører til «samme sted» som mønsteret. Additiv: original
+    delstreng-match på (motpart + melding), PLUSS eksakt butikk-nøkkel på
+    motparten (fanger linjer som kun skiller seg på referanse-halen)."""
+    if pat_full and pat_full in _row_text(r):
+        return True
+    return bool(pat_key) and pat_key == _merchant_key(r["counterparty"])
+
+
 def find_similar_manual(pattern: str, category: str, exclude_id: str | None = None) -> list[str]:
     """Id-er til MANUELT satte linjer som matcher mønsteret, men har en ANNEN
     kategori enn den vi setter. Brukes for å spørre «vil du også oppdatere disse?»
@@ -408,6 +443,7 @@ def find_similar_manual(pattern: str, category: str, exclude_id: str | None = No
     from . import db
 
     pat = _norm(pattern)
+    pat_key = _merchant_key(pattern)
     if not pat:
         return []
     ids: list[str] = []
@@ -416,7 +452,7 @@ def find_similar_manual(pattern: str, category: str, exclude_id: str | None = No
     ):
         if r["id"] == exclude_id or r["category_source"] != "manual" or r["category"] == category:
             continue
-        if pat in _row_text(r):
+        if _sibling_match(pat, pat_key, r):
             ids.append(r["id"])
     return ids
 
@@ -428,13 +464,14 @@ def apply_pattern_override(pattern: str, category: str, exclude_id: str | None =
     from . import db
 
     pat = _norm(pattern)
+    pat_key = _merchant_key(pattern)
     if not pat:
         return 0
     changed = 0
     for r in db.query("SELECT id, counterparty, remittance, category FROM transactions"):
         if r["id"] == exclude_id or r["category"] == category:
             continue
-        if pat in _row_text(r):
+        if _sibling_match(pat, pat_key, r):
             db.execute(
                 "UPDATE transactions SET category = ?, category_source = 'manual' WHERE id = ?",
                 (category, r["id"]),
