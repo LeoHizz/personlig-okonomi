@@ -553,14 +553,20 @@ async def update_account(account_id: str, request: Request):
 
 
 def _refresh_details(account_id: str, provider_ref: str, cur_name: str) -> dict:
-    """Oppdater kontonavn/IBAN/produkt (letter identifisering). Kan feile stille."""
+    """Oppdater kontonavn/IBAN/produkt (letter identifisering). Kan feile stille.
+    NB: aldri blank ut eksisterende identifikatorer med tomt svar – et tomt
+    IBAN/BBAN ødelegger konto-matchingen (dedupe + arv av eier/etikett ved
+    re-tilkobling), så vi skriver kun felt der banken faktisk ga en verdi."""
     ref = provider_ref or account_id
     d = gc.get_account_details(ref)
-    fields = {"iban": d.get("iban", ""), "bban": d.get("bban", ""), "product": d.get("product", "")}
+    fields = {k: d.get(k, "") for k in ("iban", "bban", "product") if (d.get(k) or "").strip()}
     if not cur_name or cur_name in ("Konto", ""):
-        fields["name"] = d.get("name", "Konto")
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), account_id])
+        name = (d.get("name") or "").strip()
+        if name:
+            fields["name"] = name
+    if fields:
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(f"UPDATE accounts SET {sets} WHERE id = ?", [*fields.values(), account_id])
     return d
 
 
