@@ -855,7 +855,8 @@ def build_analysis(month: str | None = None, persons=None,
         [
             {"name": c, "color": categorize.CATEGORY_COLORS.get(c, "#9aa0aa"),
              "values": [round(v) for v in vals], "max": round(max(vals)),
-             "totalFmt": _fmt(sum(vals)), "lastFmt": _fmt(vals[-1])}
+             "totalFmt": _fmt(sum(vals)), "avgFmt": _fmt(round(sum(vals) / len(vals))),
+             "lastFmt": _fmt(vals[-1])}
             for c, vals in cat_month.items() if sum(vals) > 0
         ],
         key=lambda t: sum(t["values"]), reverse=True,

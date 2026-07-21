@@ -795,7 +795,7 @@ async function renderAnalysis() {
       return `<div class="trend-row">
         <span class="an-cat" style="width:120px;flex:none"><span class="cat-dot" style="background:${tr.color}"></span>${esc(tr.name)}</span>
         <div class="trend-spark">${spark}</div>
-        <span style="width:78px;text-align:right"><b>${tr.lastFmt}</b><div class="muted" style="font-size:10px">sum ${tr.totalFmt}</div></span>
+        <span style="width:78px;text-align:right"><b>${tr.lastFmt}</b><div class="muted" style="font-size:10px">snitt ${tr.avgFmt}</div></span>
       </div>`;
     })
     .join("");
