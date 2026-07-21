@@ -172,13 +172,20 @@ def ensure_import_account(name: str, bank_code: str, owner: str) -> str:
 
 def import_transactions(account_id: str, parsed: list[dict]) -> int:
     count = 0
+    seen: dict[str, int] = {}
     for t in parsed:
         amount = t["amount"]
         counterparty = t["counterparty"]
         remittance = t["remittance"]
-        tx_id = "csv_" + hashlib.sha1(
+        base = "csv_" + hashlib.sha1(
             f"{account_id}|{t['bookingDate']}|{amount}|{remittance}".encode()
         ).hexdigest()[:20]
+        # To genuint distinkte kjøp samme dag med samme beløp/tekst gir lik hash.
+        # Disambiguer med en forekomst-teller (stabil så lenge CSV-rekkefølgen er lik),
+        # så de ikke overskriver hverandre – og re-import lager ikke nye rader.
+        occ = seen.get(base, 0)
+        seen[base] = occ + 1
+        tx_id = base if occ == 0 else f"{base}.{occ}"
 
         existing = db.query(
             "SELECT category_source FROM transactions WHERE id = ?", (tx_id,)

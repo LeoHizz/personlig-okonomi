@@ -171,6 +171,25 @@ def _rename_category(old: str, new: str) -> None:
         db.set_setting("category_rules", rules)
 
 
+def _apply_loan_transfers() -> int:
+    """Marker lånebetalinger som «Overføring» så de IKKE telles som forbruk. Et
+    lånetrekk er avdrag (sparing) + rente – renten telles separat via amortiseringen
+    (Lånerenter). Vi kjenner trekkene robust igjen på lånets «pay_match» (kontonr./tekst),
+    uavhengig av transaksjonsteksten. Rører aldri manuelt satte kategorier."""
+    liabs = db.get_setting("manual_liabilities", []) or []
+    pats = [(lb.get("pay_match") or "").strip().lower() for lb in liabs if lb.get("auto")]
+    total = 0
+    for pat in [p for p in pats if p]:
+        like = f"%{pat}%"
+        total += db.execute_rowcount(
+            "UPDATE transactions SET category = 'Overføring' "
+            "WHERE amount < 0 AND category_source != 'manual' AND category != 'Overføring' "
+            "AND (lower(remittance) LIKE ? OR lower(counterparty) LIKE ?)",
+            (like, like),
+        )
+    return total
+
+
 def _ensure_column(table: str, col: str, decl: str) -> None:
     cols = [r["name"] for r in db.query(f"PRAGMA table_info({table})")]
     if col not in cols:
@@ -188,6 +207,7 @@ async def _startup() -> None:
     _ensure_column("raw_transactions", "status", "TEXT")  # bokført/ventende i kilde-arkivet
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
+    _rename_category("Boliglån og husleie", "Overføring")  # lån er ikke forbruk (avdrag=sparing)
     _namespace_tx_ids()
     _seed_raw_archive()
     _annotate_pending()     # merk ventende i arkiv + fjern fra arbeidstabell FØR rebuild
@@ -196,6 +216,7 @@ async def _startup() -> None:
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
         db.set_setting("rules_version", categorize.RULES_VERSION)
+    _apply_loan_transfers()  # lånetrekk (pay_match) → Overføring, etter re-kategorisering
     if not config.APP_PASSWORD:
         log.warning("APP_PASSWORD er IKKE satt – appen kjører uten tilgangsbeskyttelse "
                     "(alle endepunkter åpne, inkl. sletting). Sett APP_PASSWORD i .env før "
@@ -464,6 +485,13 @@ def _accounts_with_balance() -> list[dict]:
             "SELECT amount FROM balances WHERE account_id = ? AND balance_type = 'manual'", (a["id"],)
         )
         a["manualBalance"] = mb[0]["amount"] if mb else None
+        # Sist VELLYKKEDE synk (fra revisjonsloggen) – ærlig, i motsetning til
+        # last_synced som også stemples ved feil.
+        ok = db.query(
+            "SELECT MAX(started_at) AS t FROM sync_runs WHERE account_id = ? AND status = 'ok'",
+            (a["id"],),
+        )
+        a["lastOkSync"] = ok[0]["t"] if ok and ok[0]["t"] else None
         out.append(a)
     return out
 
@@ -475,6 +503,9 @@ async def save_settings(request: Request):
                 "manual_assets", "manual_liabilities", "category_rules", "label_rules", "custom_labels"):
         if key in body:
             db.set_setting(key, body[key])
+    if "manual_liabilities" in body:
+        # Nytt/endret pay_match skal umiddelbart merke lånetrekk som Overføring.
+        _apply_loan_transfers()
     if "category_rules" in body:
         # Nye/endrede regler skal slå igjennom på eksisterende linjer også.
         applied = categorize.apply_rules_to_existing()
@@ -601,6 +632,19 @@ def dedupe_accounts():
                 continue
             # flytt transaksjonene til den vi beholder
             db.execute("UPDATE transactions SET account_id = ? WHERE account_id = ?", (keep, aid))
+            # Re-nøkle tx-id-ene til keep-kontoen. Ellers beholder de gammelt konto-
+            # prefiks, og neste synk lager en NY id for samme kjøp = duplikat i regnskapet.
+            # Kolliderer ny id med en eksisterende rad, er det samme kjøp → slett duplikatet.
+            for row in db.query("SELECT id FROM transactions WHERE account_id = ? AND id LIKE ?",
+                                (keep, aid + ":%")):
+                old_id = row["id"]
+                new_id = keep + old_id[len(aid):]
+                if new_id == old_id:
+                    continue
+                if db.query("SELECT 1 FROM transactions WHERE id = ?", (new_id,)):
+                    db.execute("DELETE FROM transactions WHERE id = ?", (old_id,))
+                else:
+                    db.execute("UPDATE transactions SET id = ? WHERE id = ?", (new_id, old_id))
             db.execute("DELETE FROM balances WHERE account_id = ?", (aid,))
             db.execute("DELETE FROM accounts WHERE id = ?", (aid,))
             deleted += 1

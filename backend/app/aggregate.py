@@ -108,12 +108,19 @@ def _month_transactions(month: str, persons=None) -> list[dict]:
 
 
 def _persons_list() -> list[str]:
-    return ["Alle"] + [
-        r["owner"] for r in db.query(
-            "SELECT DISTINCT owner FROM accounts "
-            "WHERE owner IS NOT NULL AND owner != '' AND hidden = 0 ORDER BY owner"
-        )
-    ]
+    # «Felles» eier ofte lån/verdier uten egen bankkonto – ta med eiere fra manuelle
+    # poster også, så «Felles» alltid er valgbar som person.
+    owners = set()
+    for r in db.query(
+        "SELECT DISTINCT owner FROM accounts "
+        "WHERE owner IS NOT NULL AND owner != '' AND hidden = 0"
+    ):
+        owners.add(r["owner"])
+    for x in (db.get_setting("manual_assets", []) or []) + (db.get_setting("manual_liabilities", []) or []):
+        o = (x.get("owner") or "Felles").strip()
+        if o:
+            owners.add(o)
+    return ["Alle"] + sorted(owners)
 
 
 def _income_expense(txs: list[dict]) -> tuple[float, float]:
@@ -192,6 +199,11 @@ def _loan_interest(liabilities: list[dict], month: str, pay_map: dict | None = N
         if not lb.get("auto") or _parse_rate(lb.get("rate")) <= 0:
             continue
         pat = (lb.get("pay_match") or "").strip().lower()
+        # Uten pay_match kan vi ikke skille lånetrekket ut av forbruket – da ville
+        # renten blitt talt i tillegg til hele terminbeløpet (dobbelttelling). Vent
+        # med Lånerenter til brukeren har satt pay_match.
+        if not pat:
+            continue
         _, interest = _amortize(lb, month, (pay_map or {}).get(pat))
         total += interest
     return total
@@ -248,11 +260,10 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
     manual_assets = db.get_setting("manual_assets", []) or []
     manual_liabilities = db.get_setting("manual_liabilities", []) or []
     if filtering:
-        # Felles/uspesifiserte poster (boliglån, bolig, hytte …) er husholdnings-nivå
-        # og skal vises uansett hvilken person du filtrerer på – ikke forsvinne.
-        keep = set(persons) | {"Felles", ""}
-        manual_assets = [x for x in manual_assets if (x.get("owner") or "Felles") in keep]
-        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "Felles") in keep]
+        # Personfilter = kun egne poster. «Felles» er en egen person som eier lån,
+        # verdier og felles regningskonto – velg «Felles» for å se dem.
+        manual_assets = [x for x in manual_assets if (x.get("owner") or "Felles") in persons]
+        manual_liabilities = [x for x in manual_liabilities if (x.get("owner") or "Felles") in persons]
     household = db.get_setting("household_name", "Min økonomi")
     savings_goal = db.get_setting("savings_goal_pct", 20)
 
@@ -978,11 +989,32 @@ def build_loan_history(pattern: str | None, persons=None) -> dict:
     by_month: dict[str, float] = defaultdict(float)
     for t in pays:
         by_month[(t["booking_date"] or "")[:7]] += -t["amount"]
+
+    # Rente/avdrag-splitt: finn lånet som matcher dette pay_match, og bruk amortiseringen
+    # til å dele hver månedsbetaling i rentekostnad vs. avdrag (egenkapital).
+    lb = None
+    for x in db.get_setting("manual_liabilities", []) or []:
+        if x.get("auto") and (x.get("pay_match") or "").strip().lower() == pattern:
+            lb = x
+            break
+    pay_map = _loan_payment_months(pattern, persons) if lb else {}
+
     months = _prev_months(current_month(), 12)
-    series = [
-        {"month": m, "label": _month_label(m).split()[0][:3], "amount": round(by_month.get(m, 0.0))}
-        for m in months
-    ]
+    tot_int = tot_prin = 0.0
+    series = []
+    for m in months:
+        amt = round(by_month.get(m, 0.0))
+        interest = principal = None
+        if lb and by_month.get(m, 0) > 0:
+            _, rente = _amortize(lb, m, pay_map)
+            interest = round(min(rente, by_month[m]))     # renten kan aldri overstige betalingen
+            principal = round(by_month[m]) - interest
+            tot_int += interest
+            tot_prin += principal
+        series.append({
+            "month": m, "label": _month_label(m).split()[0][:3],
+            "amount": amt, "interest": interest, "principal": principal,
+        })
     active = [m for m in by_month if by_month[m] > 0]
     recent = [
         {"date": _short_date(t["booking_date"]),
@@ -996,6 +1028,8 @@ def build_loan_history(pattern: str | None, persons=None) -> dict:
         "avgFmt": _fmt(total / len(active)) if active else "0",
         "series": series, "max": max((s["amount"] for s in series), default=0),
         "recent": recent, "months": len(active),
+        "hasSplit": lb is not None,
+        "totalInterestFmt": _fmt(tot_int), "totalPrincipalFmt": _fmt(tot_prin),
     }
 
 

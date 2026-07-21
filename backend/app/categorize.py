@@ -7,7 +7,6 @@ from __future__ import annotations
 
 # Kategori -> farge (samme palett som designet)
 CATEGORY_COLORS: dict[str, str] = {
-    "Boliglån og husleie": "#16324a",
     "Kommunale avgifter": "#3d6b7a",
     "Dagligvarer": "#2f7a5e",
     "Barn": "#4a6a86",
@@ -33,10 +32,9 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 6
+RULES_VERSION = 7
 
 CATEGORY_ORDER = [
-    "Boliglån og husleie",
     "Kommunale avgifter",
     "Dagligvarer",
     "Barn",
@@ -58,7 +56,7 @@ CATEGORY_ORDER = [
 ]
 
 # Kategorier som regnes som "faste utgifter"
-FIXED_CATEGORIES = {"Boliglån og husleie", "Lånerenter", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
+FIXED_CATEGORIES = {"Lånerenter", "Kommunale avgifter", "Barn", "Forsikring", "Strøm", "Abonnementer"}
 
 # Nøkkelord -> kategori. Matches som delstreng, ufølsom for store/små bokstaver.
 # Rekkefølgen betyr noe: første treff vinner.
@@ -79,12 +77,21 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("nedbetaling kredittkort", "Overføring"),
     ("egen overføring", "Overføring"),
     ("overføring egen konto", "Overføring"),
+    # Lånenedbetaling = overføring (avdrag er sparing; renten telles via amortisering).
+    # NB: faktiske lånetrekk kjennes robust igjen via lånets «pay_match» (kontonr.),
+    # ikke bare her – se main._apply_loan_transfers.
+    ("boliglån", "Overføring"),
+    ("terminbeløp", "Overføring"),
+    ("avdrag", "Overføring"),
+    # Spesifikke overstyringer som MÅ stå før brede delstrenger lenger nede
+    # (ellers feilkategoriseres de: «Skoda»→«oda», «rentesats»→«sats», «Bombay»→«bom»).
+    ("skoda", "Transport"),
+    ("rentesats", "Renter og gebyrer"),
     # Dagligvarer
     ("rema", "Dagligvarer"),
     ("kiwi", "Dagligvarer"),
     ("meny", "Dagligvarer"),
     ("coop", "Dagligvarer"),
-    ("extra", "Dagligvarer"),
     ("obs ", "Dagligvarer"),
     ("bunnpris", "Dagligvarer"),
     ("spar ", "Dagligvarer"),
@@ -92,7 +99,6 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("europris", "Dagligvarer"),
     ("oda", "Dagligvarer"),
     ("holdbart", "Dagligvarer"),
-    ("normal", "Dagligvarer"),
     # Restaurant og kafé
     ("foodora", "Restaurant og kafé"),
     ("wolt", "Restaurant og kafé"),
@@ -118,7 +124,9 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("uno x", "Transport"),
     ("st1", "Transport"),
     ("ferde", "Transport"),
-    ("bom", "Transport"),
+    ("bompeng", "Transport"),
+    ("bomstasjon", "Transport"),
+    ("bompasser", "Transport"),
     ("autopass", "Transport"),
     ("ruter", "Transport"),
     ("skyss", "Transport"),
@@ -181,7 +189,7 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("fremtind", "Forsikring"),
     ("gjensidige", "Forsikring"),
     ("if forsikring", "Forsikring"),
-    ("tryg", "Forsikring"),
+    ("tryg forsikring", "Forsikring"),
     ("storebrand", "Forsikring"),
     ("frende", "Forsikring"),
     ("eika forsikring", "Forsikring"),
@@ -196,13 +204,6 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("xxl", "Fritid"),
     ("g-sport", "Fritid"),
     ("gsport", "Fritid"),
-    # Boliglån og husleie
-    ("boliglån", "Boliglån og husleie"),
-    ("terminbeløp", "Boliglån og husleie"),
-    ("husleie", "Boliglån og husleie"),
-    ("obos", "Boliglån og husleie"),
-    ("borettslag", "Boliglån og husleie"),
-    ("avdrag", "Boliglån og husleie"),
     # Kommunale avgifter
     ("kommunale avgifter", "Kommunale avgifter"),
     ("kommunale gebyr", "Kommunale avgifter"),
@@ -247,7 +248,6 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("norwegian air", "Reise og ferie"),
     ("widerøe", "Reise og ferie"),
     ("wideroe", "Reise og ferie"),
-    ("flytoget", "Reise og ferie"),
     ("booking.com", "Reise og ferie"),
     ("hotell", "Reise og ferie"),
     ("airbnb", "Reise og ferie"),
@@ -335,7 +335,6 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("vinmonopolet", "Annet"),
     # Overføringer mellom egne kontoer / Vipps
     ("overføring", "Overføring"),
-    ("egen overføring", "Overføring"),
 ]
 
 
