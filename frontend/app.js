@@ -173,7 +173,7 @@ function renderDashboard() {
       ${kpi("Netto formue", k.netWorth, k.netWorthNote)}
       ${kpi("Inn", k.income, "denne måneden", false, "goTxFlow('in')")}
       ${kpi("Ut", k.expense, "denne måneden", false, "goTxFlow('out')")}
-      ${kpi("Faste utgifter", k.fixed, `${k.fixedPct} % av forbruket`, false, "goTxFlow('fixed')")}
+      ${kpi("Overskudd", k.surplus, "Inn − Ut denne måneden", false, "goAnalyse()")}
       ${kpi("Sparerate", k.savingsRate + " %", `mål: ${k.savingsGoal} %`, true, "goAnalyse()")}
     </div>
     ${d.summary ? `<div class="ai">
@@ -475,7 +475,7 @@ function budgetCard(d) {
   if (!b.total) {
     return `<div class="card">
       <div class="bud-head"><div class="card-title">Regnskap mot budsjett</div></div>
-      <div class="bud-note" style="margin-top:10px">Sett budsjett per kategori i innstillinger for å følge forbruket mot budsjettet. <span class="sel-link" onclick="openSettings('budsjett')">Sett budsjett →</span></div>
+      <div class="bud-note" style="margin-top:10px">Sett budsjett per kategori i budsjett-modulen for å følge forbruket mot budsjettet. <span class="sel-link" onclick="goBudget()">Sett budsjett →</span></div>
     </div>`;
   }
   const fixedW = Math.round((b.fixed / b.total) * 100);
@@ -1118,8 +1118,8 @@ async function openSettings(tab) {
 
 function renderSettings(tab) {
   const s = settingsCache;
-  const tabs = ["generelt", "budsjett", "kontoer", "regler", "merkelapper", "eiendeler", "lan", "likviditet"];
-  const labels = { generelt: "Generelt", budsjett: "Budsjett", kontoer: "Kontoer", regler: "Regler", merkelapper: "Merkelapper", eiendeler: "Eiendeler", lan: "Lån", likviditet: "Likviditet" };
+  const tabs = ["generelt", "kontoer", "regler", "merkelapper", "eiendeler", "lan", "likviditet"];
+  const labels = { generelt: "Generelt", kontoer: "Kontoer", regler: "Regler", merkelapper: "Merkelapper", eiendeler: "Eiendeler", lan: "Lån", likviditet: "Likviditet" };
   const tabBar = tabs.map((t) => `<div class="tab ${t === tab ? "active" : ""}" onclick="renderSettings('${t}')">${labels[t]}</div>`).join("");
 
   let body = "";
@@ -1133,12 +1133,6 @@ function renderSettings(tab) {
           : `<button class="chip-btn" onclick="toggleDemo(true)">🎭 Skru PÅ demo (falske tall for visning)</button>`}</div>
         <div class="sub" style="margin-top:6px">Bytter midlertidig til falske tall for å vise appen fram. Ekte data røres ikke, og kommer tilbake når du skrur av (eller ved omstart).</div>
       </div>`;
-  } else if (tab === "budsjett") {
-    body = s.categories
-      .map(
-        (c) => `<div class="field" style="margin-bottom:8px"><label>${esc(c)}</label><input class="bud-in" data-cat="${esc(c)}" type="number" placeholder="0" value="${esc(s.budgets[c] ?? "")}"></div>`
-      )
-      .join("");
   } else if (tab === "kontoer") {
     const acctKey = (a) => norAccount(a.iban, a.bban).replace(/\./g, "");
     const acctCounts = {};
@@ -1390,13 +1384,6 @@ async function saveSettings(tab) {
   if (tab === "generelt") {
     payload.household_name = document.getElementById("set_household").value;
     payload.savings_goal_pct = Number(document.getElementById("set_goal").value) || 20;
-  } else if (tab === "budsjett") {
-    const budgets = {};
-    document.querySelectorAll(".bud-in").forEach((i) => {
-      const v = Number(i.value);
-      if (v > 0) budgets[i.dataset.cat] = v;
-    });
-    payload.budgets = budgets;
   } else if (tab === "eiendeler") {
     payload.manual_assets = [...document.querySelectorAll(".asset-row")]
       .map((r) => rowObj(r))

@@ -567,6 +567,8 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
             else "sum av tilkoblede kontoer",
             "income": _fmt(income),
             "expense": _fmt(total_expense),
+            "surplus": (("−" if (income - total_expense) < 0 else "") + _fmt(abs(income - total_expense))),
+            "surplusNeg": (income - total_expense) < 0,
             "fixed": _fmt(fixed_expense),
             "fixedPct": round(fixed_expense / total_expense * 100) if total_expense else 0,
             "savingsRate": f"{savings_rate:.1f}".replace(".", ",") if income else "0",
