@@ -203,6 +203,7 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         # Feil på bokførte transaksjoner logges (ikke svelges) – synk «lyver» ikke lenger.
         rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, str(e))
         result["tx_error"] = str(e)
+        result["tx_status"] = getattr(e, "status", None)
     else:
         # 1) KILDE: arkiver ALT banken ga oss, urørt, med bokført/ventende-status.
         raw_objs = [t.get("raw", t) for t in txs]
