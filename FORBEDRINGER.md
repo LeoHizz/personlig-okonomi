@@ -59,6 +59,20 @@ Tre modelleringsvalg (til diskusjon om ambisjonsnivå):
 Vipps-refusjon fra ekte inntekt (mønster/regel/beløp-match mot nylig utlegg)?
 Relaterer til #3 (kontobetingede regler) og lån=overføring-modellen.
 
+### 5. Proaktiv varsling om bank-tilkoblingens helse 🆕
+_(2026-07-22)_
+I dag oppdager man at en bank har sluttet å levere data først når tallene stopper
+(f.eks. SPV som ga 400 i 2 døgn uten at noe sa fra på forsiden). Appen bør varsle
+proaktivt:
+- **Samtykke-alder / re-auth:** vis «SPV-samtykket bør fornyes om X dager» beregnet
+  fra `requisitions.created_at + 90 dager` (PSD2 krever ny BankID ~hver 90. dag).
+- **Stille stopp:** flagg tydelig på dashboardet når en konto/bank ikke har hatt en
+  vellykket synk på N dager (bruk `sync_runs` + `last_synced`), ikke bare på
+  kontoinnstillinger. Skill mellom ratebegrensning (forbigående) og samtykke/annet
+  (krever handling).
+🔎 Avklares: terskel for «stille stopp»-varsel (2–3 dager?). Egen «bank-helse»-widget
+vs. banner. Relaterer til den ærlige synk-rapporteringen som nettopp ble lagt inn.
+
 ---
 
 ## Planlagt (neste runde)
