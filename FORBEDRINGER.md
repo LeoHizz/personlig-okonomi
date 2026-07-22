@@ -73,6 +73,21 @@ proaktivt:
 🔎 Avklares: terskel for «stille stopp»-varsel (2–3 dager?). Egen «bank-helse»-widget
 vs. banner. Relaterer til den ærlige synk-rapporteringen som nettopp ble lagt inn.
 
+### 6. Bruk bankens EKSAKTE rente/avdrag-splitt når den finnes 🆕
+_(2026-07-22)_
+Lånerenter beregnes i dag via amortiseringsestimat (startsaldo + rente + terminbeløp).
+Men banken oppgir ofte den nøyaktige splitten i selve transaksjonsteksten, f.eks. fra
+CSV-eksporten for boliglånet (−24 036):
+«Avdrag: kr 6.000,00  Renter: kr 17.967,00  Terminomkostninger: kr 69,00».
+Parse denne når den finnes → eksakt rente/avdrag per måned i stedet for estimat, og
+terminomkostninger som eget lite gebyr. Mer presist enn amortiseringen, og selvkorrigerende
+ved flytende rente.
+🔎 Avklares: leverer Enable Banking-API-et denne detaljen i `remittance`, eller bare
+CSV-eksporten? (Via API så vi kun «Lån · 36» — altså kortere.) Hvis kun CSV: gjelder
+forslaget CSV-importerte lån; ellers undersøk om API-remittance har mer. Fallback til
+amortiseringsestimatet når teksten mangler. Relaterer til lån=overføring-modellen og
+rente/avdrag-grafen som nettopp ble lagt inn.
+
 ---
 
 ## Planlagt (neste runde)
