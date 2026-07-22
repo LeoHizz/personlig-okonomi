@@ -157,7 +157,7 @@ def _loan_payment_months(pattern: str | None, persons=None) -> dict[str, float]:
         "SELECT substr(t.booking_date,1,7) AS m, t.amount AS amt, a.owner AS owner "
         "FROM transactions t JOIN accounts a ON a.id = t.account_id "
         "WHERE a.hidden = 0 AND t.amount < 0 AND "
-        "(lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ? OR lower(t.id) LIKE ?)",
+        "(lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ? OR lower(t.entry_reference) LIKE ?)",
         (like, like, like),
     )
     out: dict[str, float] = defaultdict(float)
@@ -984,7 +984,7 @@ def build_loan_history(pattern: str | None, persons=None) -> dict:
         "SELECT t.*, a.owner AS owner, a.bank_code AS bank_code, a.name AS acct_name "
         "FROM transactions t JOIN accounts a ON a.id = t.account_id "
         "WHERE a.hidden = 0 AND "
-        "(lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ? OR lower(t.id) LIKE ?) "
+        "(lower(t.remittance) LIKE ? OR lower(t.counterparty) LIKE ? OR lower(t.entry_reference) LIKE ?) "
         "ORDER BY t.booking_date DESC",
         (like, like, like),
     )

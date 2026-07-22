@@ -7,30 +7,29 @@ hopper over kontoer som ble synket nylig med mindre `force=True`.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
 from . import categorize, config, db, provider as gc, rawstore
 
 
-def _hash_tx(account_id: str, t: dict) -> str:
-    basis = f"{account_id}|{t.get('booking_date')}|{t.get('amount')}|{t.get('remittance')}"
-    return "h_" + hashlib.sha1(basis.encode()).hexdigest()[:20]
-
-
-def _tx_id(account_id: str, t: dict) -> str:
-    """Stabil, kollisjonsfri transaksjons-id. Inkluderer booking_date fordi bankens
-    entry_reference kan GJENTAS (f.eks. faste lånetrekk der referansen = lånekonto-
-    nummeret, likt hver måned). Uten datoen kollapser alle månedene til én rad."""
-    ref = t.get("id")
-    if not ref:
-        return _hash_tx(account_id, t)
-    bd = t.get("booking_date") or ""
-    # Uten dato: IKKE etterlat en avsluttende «:» – da ville live-synk skrive
-    # «A:ref:» mens engangs-migreringen (som hopper over tomme datoer) beholder
-    # «A:ref», og de to id-ene ville kollidere til hver sin rad (duplikat).
-    return f"{account_id}:{ref}:{bd}" if bd else f"{account_id}:{ref}"
+def apply_loan_transfers() -> int:
+    """Marker lånebetalinger som «Overføring» så de IKKE telles som forbruk. Et
+    lånetrekk er avdrag (sparing) + rente – renten telles separat via amortiseringen
+    (Lånerenter). Kjennes robust igjen på lånets «pay_match» (kontonr./tekst) mot
+    remittance/motpart ELLER entry_reference. Rører aldri manuelt satte kategorier."""
+    liabs = db.get_setting("manual_liabilities", []) or []
+    pats = [(lb.get("pay_match") or "").strip().lower() for lb in liabs if lb.get("auto")]
+    total = 0
+    for pat in [p for p in pats if p]:
+        like = f"%{pat}%"
+        total += db.execute_rowcount(
+            "UPDATE transactions SET category = 'Overføring' "
+            "WHERE amount < 0 AND category_source != 'manual' AND category != 'Overføring' "
+            "AND (lower(remittance) LIKE ? OR lower(counterparty) LIKE ? OR lower(entry_reference) LIKE ?)",
+            (like, like, like),
+        )
+    return total
 
 
 def _bank_code(institution_name: str, institution_id: str) -> str:
@@ -65,44 +64,6 @@ def _save_balances(account_id: str, balances: list[dict]) -> None:
             (account_id, b.get("type", "other"), b.get("amount", 0.0),
              b.get("currency", "NOK"), b.get("date", "")),
         )
-
-
-def _upsert_transactions(account_id: str, txs: list[dict]) -> int:
-    count = 0
-    for t in txs:
-        tx_id = _tx_id(account_id, t)
-        counterparty = t.get("counterparty", "")
-        remittance = t.get("remittance", "")
-        amount = t.get("amount", 0.0)
-
-        existing = db.query(
-            "SELECT category, category_source FROM transactions WHERE id = ?", (tx_id,)
-        )
-        if existing and existing[0]["category_source"] == "manual":
-            category, source = existing[0]["category"], "manual"
-        else:
-            category = categorize.categorize(counterparty, remittance, amount)
-            source = "auto"
-
-        db.upsert(
-            "transactions",
-            {
-                "id": tx_id,
-                "account_id": account_id,
-                "booking_date": t.get("booking_date"),
-                "value_date": t.get("value_date") or t.get("booking_date"),
-                "amount": amount,
-                "currency": t.get("currency", "NOK"),
-                "counterparty": counterparty,
-                "remittance": remittance,
-                "category": category,
-                "category_source": source,
-                "status": t.get("status", "booked"),
-                "raw": json.dumps(t.get("raw", t), ensure_ascii=False),
-            },
-        )
-        count += 1
-    return count
 
 
 def register_accounts(query: dict) -> list[str]:
@@ -210,12 +171,11 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         statuses = [t.get("status") for t in txs]
         result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now, statuses)
         rawstore.record_run(account_id, "ok", now, 200, len(raw_objs))
-        # 2) AVLEDET: kun BOKFØRTE teller. Ventende (pending) skifter dato/beløp/referanse
-        # når de bokføres → ville blitt en NY rad = dobbeltføring. De hentes uansett inn
-        # på nytt som bokførte (1–3 dager). Vi ofrer «ferskest mulig» for korrekte tall.
-        booked = [t for t in txs if t.get("status") != "pending"]
-        result["pending_skipped"] = len(txs) - len(booked)
-        result["transactions"] = _upsert_transactions(account_id, booked)
+        # 2) AVLEDET: speil kontoen fra arkivet. Én id-vei (content_hash) → aldri kollisjon
+        # selv når banken gjenbruker entry_reference. Ventende ekskluderes, lån=overføring
+        # markeres. Ventende skifter dato/beløp/ref når de bokføres → holdes utenfor.
+        result["pending_skipped"] = sum(1 for t in txs if t.get("status") == "pending")
+        result["transactions"] = rebuild_from_raw(account_id).get("rebuilt", 0)
 
     db.execute("UPDATE accounts SET last_synced = ? WHERE id = ?", (now, account_id))
     return result
@@ -236,50 +196,69 @@ def sync_all(force: bool = False) -> dict:
     return {"synced": results, "at": gc.utc_now_iso()}
 
 
-def rebuild_from_raw() -> dict:
-    """AVLEDET-lag: bygg arbeidstabellen `transactions` på nytt FRA kilde-arkivet
-    (raw_transactions). Ingen API-kall – gjenkjørbar når kategori-/tolknings-logikk
-    endres. Bevarer manuelle kategorier og per-transaksjon-merkelapper. Rører ikke
-    CSV-importerte rader (de ligger ikke i bank-arkivet). Ikke-destruktiv/refresh:
-    upserter fra arkivet, sletter ikke (arkivet er fasit først etter komplett backfill)."""
-    # Bevar brukerens overstyringer, nøklet på tx-id.
+def rebuild_from_raw(account_id: str | None = None) -> dict:
+    """AVLEDET-lag: bygg arbeidstabellen som et EKSAKT SPEIL av kilde-arkivet.
+    Arbeidstabellens id = arkivets `content_hash` (garantert unik per transaksjon),
+    så identiske/gjenbrukte bank-referanser (f.eks. SPVs entry_reference='21' på mange
+    kjøp samme dag) ALDRI kolliderer. Ventende ekskluderes. Manuelle kategorier/
+    merkelapper bevares nøklet på INNHOLD (konto+dato+beløp+tekst), ikke på id – så de
+    overlever id-skiftet og tidligere kollapsede rader. CSV-import røres ikke (ligger
+    ikke i arkivet). Kan skopes til én konto (brukes av live-synk).
+    Ingen API-kall – gjenkjørbar."""
+    scope = "WHERE account_id = ?" if account_id else ""
+    params = (account_id,) if account_id else ()
+
     keep_cat, keep_labels = {}, {}
-    for r in db.query("SELECT id, category, category_source, labels FROM transactions"):
+    for r in db.query(
+        f"SELECT account_id, booking_date, amount, remittance, category, category_source, labels "
+        f"FROM transactions {scope}", params):
+        sig = (r["account_id"], r["booking_date"], r["amount"], r["remittance"])
         if r["category_source"] == "manual":
-            keep_cat[r["id"]] = r["category"]
+            keep_cat[sig] = r["category"]
         if r["labels"] and r["labels"] not in ("", "null", "[]"):
-            keep_labels[r["id"]] = r["labels"]
+            keep_labels[sig] = r["labels"]
 
     records = []
-    for row in db.query("SELECT account_id, status, raw FROM raw_transactions ORDER BY booking_date"):
-        # Ventende teller ikke (unngår dobbeltføring pending→booked). NULL-status =
-        # eldre arkiv-rader vi ikke kjenner skillet på → behandles som bokført.
-        if row["status"] == "pending":
+    for row in db.query(
+        f"SELECT content_hash, account_id, status, raw FROM raw_transactions {scope} "
+        f"ORDER BY booking_date", params):
+        if row["status"] == "pending":  # NULL-status (eldre) = behandles som bokført
             continue
         try:
             obj = json.loads(row["raw"])
         except (ValueError, TypeError):
             continue
-        account_id = row["account_id"]
-        t = gc.normalize_raw(obj)  # provider-uavhengig normalisering (ikke privat funksjon)
-        tx_id = _tx_id(account_id, t)
-
-        if tx_id in keep_cat:
-            category, source = keep_cat[tx_id], "manual"
+        aid = row["account_id"]
+        t = gc.normalize_raw(obj)
+        bd = t.get("booking_date")
+        amount = t.get("amount", 0.0)
+        remittance = t.get("remittance", "")
+        sig = (aid, bd, amount, remittance)
+        if sig in keep_cat:
+            category, source = keep_cat[sig], "manual"
         else:
-            category = categorize.categorize(t.get("counterparty", ""), t.get("remittance", ""), t.get("amount", 0.0))
+            category = categorize.categorize(t.get("counterparty", ""), remittance, amount)
             source = "auto"
-
         records.append({
-            "id": tx_id, "account_id": account_id,
-            "booking_date": t.get("booking_date"),
-            "value_date": t.get("value_date") or t.get("booking_date"),
-            "amount": t.get("amount", 0.0), "currency": t.get("currency", "NOK"),
-            "counterparty": t.get("counterparty", ""), "remittance": t.get("remittance", ""),
+            "id": row["content_hash"],           # unik per arkivert transaksjon
+            "account_id": aid,
+            "entry_reference": t.get("id"),      # bankens (evt. gjenbrukte) referanse – for lån-match
+            "booking_date": bd,
+            "value_date": t.get("value_date") or bd,
+            "amount": amount, "currency": t.get("currency", "NOK"),
+            "counterparty": t.get("counterparty", ""), "remittance": remittance,
             "category": category, "category_source": source,
             "status": t.get("status", "booked"),
             "raw": json.dumps(obj, ensure_ascii=False),
-            "labels": keep_labels.get(tx_id),   # None hvis ingen – uniform kolonner for batch
+            "labels": keep_labels.get(sig),
         })
-    db.upsert_many("transactions", records)  # ÉN transaksjon
+
+    # Eksakt speil: fjern gamle rader for de arkiverte kontoene, sett inn på nytt.
+    # (CSV-import har ingen arkiv-rader og røres derfor ikke.)
+    if account_id:
+        db.execute("DELETE FROM transactions WHERE account_id = ?", (account_id,))
+    else:
+        db.execute("DELETE FROM transactions WHERE account_id IN (SELECT DISTINCT account_id FROM raw_transactions)")
+    db.upsert_many("transactions", records)
+    apply_loan_transfers()   # lånetrekk → Overføring (etter at kategoriene er satt)
     return {"rebuilt": len(records)}

@@ -171,23 +171,18 @@ def _rename_category(old: str, new: str) -> None:
         db.set_setting("category_rules", rules)
 
 
-def _apply_loan_transfers() -> int:
-    """Marker lånebetalinger som «Overføring» så de IKKE telles som forbruk. Et
-    lånetrekk er avdrag (sparing) + rente – renten telles separat via amortiseringen
-    (Lånerenter). Vi kjenner trekkene robust igjen på lånets «pay_match» (kontonr./tekst),
-    uavhengig av transaksjonsteksten. Rører aldri manuelt satte kategorier."""
-    liabs = db.get_setting("manual_liabilities", []) or []
-    pats = [(lb.get("pay_match") or "").strip().lower() for lb in liabs if lb.get("auto")]
-    total = 0
-    for pat in [p for p in pats if p]:
-        like = f"%{pat}%"
-        total += db.execute_rowcount(
-            "UPDATE transactions SET category = 'Overføring' "
-            "WHERE amount < 0 AND category_source != 'manual' AND category != 'Overføring' "
-            "AND (lower(remittance) LIKE ? OR lower(counterparty) LIKE ? OR lower(id) LIKE ?)",
-            (like, like, like),
-        )
-    return total
+def _migrate_content_ids() -> None:
+    """Engangs: konverter arbeidstabellens id til arkivets content_hash (unik per
+    transaksjon) via full rebuild. Fikser at gjenbrukte bank-referanser tidligere
+    kollapset distinkte transaksjoner til én rad. Bevarer manuelle overstyringer."""
+    if db.get_setting("migr_content_ids"):
+        return
+    try:
+        res = sync.rebuild_from_raw()
+        log.info("Migrering til content_hash-id + rebuild: %s rader", res.get("rebuilt"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Content-id-migrering feilet: %s", e)
+    db.set_setting("migr_content_ids", True)
 
 
 def _ensure_column(table: str, col: str, decl: str) -> None:
@@ -204,6 +199,7 @@ async def _startup() -> None:
     _ensure_column("accounts", "is_credit", "INTEGER DEFAULT 0")
     _ensure_column("accounts", "credit_limit", "REAL")  # manuell kredittramme (nødbuffer-utregning)
     _ensure_column("transactions", "labels", "TEXT")  # per-transaksjon-merkelapper (JSON)
+    _ensure_column("transactions", "entry_reference", "TEXT")  # bankens referanse (for lån-match)
     _ensure_column("raw_transactions", "status", "TEXT")  # bokført/ventende i kilde-arkivet
     _migrate_categories()
     _rename_category("Bolig og lån", "Boliglån og husleie")
@@ -217,7 +213,8 @@ async def _startup() -> None:
     if db.get_setting("rules_version") != categorize.RULES_VERSION:
         categorize.apply_rules_to_existing()
         db.set_setting("rules_version", categorize.RULES_VERSION)
-    _apply_loan_transfers()  # lånetrekk (pay_match) → Overføring, etter re-kategorisering
+    _migrate_content_ids()       # engangs: id = content_hash (full rebuild) – fikser kollisjon
+    sync.apply_loan_transfers()  # lånetrekk (pay_match) → Overføring (idempotent, hver oppstart)
     if not config.APP_PASSWORD:
         log.warning("APP_PASSWORD er IKKE satt – appen kjører uten tilgangsbeskyttelse "
                     "(alle endepunkter åpne, inkl. sletting). Sett APP_PASSWORD i .env før "
@@ -524,7 +521,7 @@ async def save_settings(request: Request):
             db.set_setting(key, body[key])
     if "manual_liabilities" in body:
         # Nytt/endret pay_match skal umiddelbart merke lånetrekk som Overføring.
-        _apply_loan_transfers()
+        sync.apply_loan_transfers()
     if "category_rules" in body:
         # Nye/endrede regler skal slå igjennom på eksisterende linjer også.
         applied = categorize.apply_rules_to_existing()

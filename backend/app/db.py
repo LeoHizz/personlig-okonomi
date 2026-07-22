@@ -111,8 +111,9 @@ CREATE TABLE IF NOT EXISTS balances (
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-    id              TEXT PRIMARY KEY,
+    id              TEXT PRIMARY KEY,     -- = raw_transactions.content_hash (unik per tx)
     account_id      TEXT,
+    entry_reference TEXT,                 -- bankens referanse (kan gjenbrukes; for lån-match)
     booking_date    TEXT,
     value_date      TEXT,
     amount          REAL,

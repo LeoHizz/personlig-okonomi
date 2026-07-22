@@ -81,7 +81,7 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("overføring egen konto", "Overføring"),
     # Lånenedbetaling = overføring (avdrag er sparing; renten telles via amortisering).
     # NB: faktiske lånetrekk kjennes robust igjen via lånets «pay_match» (kontonr.),
-    # ikke bare her – se main._apply_loan_transfers.
+    # ikke bare her – se sync.apply_loan_transfers.
     ("boliglån", "Overføring"),
     ("terminbeløp", "Overføring"),
     ("avdrag", "Overføring"),
