@@ -118,6 +118,20 @@ aktivt), eller er måned-om-gangen godt nok? (b) hvilke filtre prioriteres (bel�
 retning)? Egen «filter»-knapp/panel vs. inline-chips. Bygger på eksisterende
 clearCatFilter/clearFlowFilter-mønster.
 
+### 9. Konkrete rente/avdrag-tall: hover på lånegrafen + total-fordeling i Lån-kortet 🆕
+_(2026-07-22)_
+Lånehistorikk-grafen viser fordelingen fint visuelt, men de konkrete kronetallene er
+vanskelige å lese av.
+- **(a) Tydelig hover/tooltip på grafen:** vis rente + avdrag (kr) for måneden man peker
+  på. Stolpene har i dag kun en enkel native `title`-tooltip (treg, lett å overse) – lag
+  en ordentlig hover.
+- **(b) Total-fordeling i «Lån»-kortet på forsiden:** en enkel grafikk som viser samlet
+  avdrag vs. rente på tvers av ALLE lån.
+🔎 Avklares: (b) hvilken periode (i år / siste 12 mnd / totalt)? Per lån eller sum alle?
+Merk også: `pay_match` fanger alle overføringer TIL lånekontoen (også småbeløp fra
+brukskonto), som påvirker split-summene – vurder om kun terminbeløpet skal telle. Relaterer
+til #6 (eksakt splitt fra banktekst) og rente/avdrag-grafen som nettopp ble lagt inn.
+
 ---
 
 ## Planlagt (neste runde)
