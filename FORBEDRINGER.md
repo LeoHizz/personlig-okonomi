@@ -104,6 +104,20 @@ Lag en visning (fane eller panel i Innstillinger → Kontoer, evt. egen «Aktivi
 🔎 Avklares: egen «Aktivitet»-fane vs. panel under Kontoer. Hvor mange forsøk vises
 (siste 30?). Relaterer til #5 (bank-helse-varsling) og den ærlige synk-rapporteringen.
 
+### 8. Transaksjonsvisning: månedsnavigasjon som forsiden + skarpere filtre 🆕
+_(2026-07-22)_
+To ønsker for transaksjonslista:
+- **(a) Enklere tidsvalg:** fjern periode-velgeren (Måned / 3 mnd / 12 mnd / Alt).
+  Bruk kun månedsnavigasjon (‹ Juli 2026 ›), akkurat som på forsiden — én måned om gangen.
+- **(b) Skarpere filtre:** kunne filtrere på f.eks. beløp over/under en sum, på konto
+  (til/fra), retning, evt. datospenn. Det skal være **tydelig når et filter er aktivt**
+  (aktiv-filter-chip med ✕ for å fjerne, slik kategori/flyt-filteret allerede gjør i dag).
+🔎 Avklares: (a) med kun én måned synlig mister man kryss-måneds-søk — skal søk/beløps-
+filter fortsatt kunne søke på tvers (f.eks. utvide til «alle» automatisk når et filter er
+aktivt), eller er måned-om-gangen godt nok? (b) hvilke filtre prioriteres (beløp / konto /
+retning)? Egen «filter»-knapp/panel vs. inline-chips. Bygger på eksisterende
+clearCatFilter/clearFlowFilter-mønster.
+
 ---
 
 ## Planlagt (neste runde)
