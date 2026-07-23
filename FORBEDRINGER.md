@@ -88,6 +88,22 @@ forslaget CSV-importerte lån; ellers undersøk om API-remittance har mer. Fallb
 amortiseringsestimatet når teksten mangler. Relaterer til lån=overføring-modellen og
 rente/avdrag-grafen som nettopp ble lagt inn.
 
+### 7. Synk-logg / aktivitetslogg i appen 🆕
+_(2026-07-22)_
+Det finnes ingen synlig logg over synk-forsøk i appen, så man ser ikke hva som
+faktisk skjedde per konto (f.eks. at SPV-kontoene fikk 400 mens DNB gikk bra).
+Lag en visning (fane eller panel i Innstillinger → Kontoer, evt. egen «Aktivitet»):
+- Per synk-forsøk: tidspunkt, konto/bank, ok/feil, HTTP-status, feilmelding.
+- Datakilden finnes ALLEREDE: `sync_runs`-tabellen + endepunktet `/api/source-status`
+  (returnerer `rawstore.stats()` + `last_runs(30)`). Så dette er i hovedsak en
+  frontend-visning.
+- Ta samtidig igjen den ærlige rapporteringen på **«Hent fra bank»** (`refresh-all`):
+  den teller i dag SPV-kontoer som «oppdatert» selv når de får 400 (sync_account
+  reiser ikke unntak på tx-feil), så «11 kontoer, 12 transaksjoner» skjuler de
+  feilede. «Synk»-knappen ble fikset; refresh-all bør vise samme ok/feilet-splitt.
+🔎 Avklares: egen «Aktivitet»-fane vs. panel under Kontoer. Hvor mange forsøk vises
+(siste 30?). Relaterer til #5 (bank-helse-varsling) og den ærlige synk-rapporteringen.
+
 ---
 
 ## Planlagt (neste runde)
