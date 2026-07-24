@@ -14,6 +14,8 @@ inneholder enkeltkjøp) tas ALDRI med.
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from . import aggregate, config, db
@@ -122,24 +124,16 @@ def _build_payload(dash: dict) -> dict:
     }
 
 
-def _call_anthropic(payload: dict) -> str:
+def _call(system: str, user: str) -> str:
     """Kall Messages API rått via httpx (samme mønster som bank-integrasjonene –
-    ingen ny tung avhengighet). Kaster ved feil; håndteres av `generate`."""
-    import json
-
+    ingen ny tung avhengighet). Kaster ved feil; håndteres av `_run`."""
     body = {
         "model": model(),
         "max_tokens": 1024,
-        # Analysen er liten; slå av «thinking» for å holde token/kostnad nede.
+        # Svaret er kort; slå av «thinking» for å holde token/kostnad nede.
         "thinking": {"type": "disabled"},
-        "system": _SYSTEM,
-        "messages": [{
-            "role": "user",
-            "content": (
-                "Her er månedens aggregerte tall (JSON). Gi analysen:\n\n"
-                + json.dumps(payload, ensure_ascii=False, indent=2)
-            ),
-        }],
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
     }
     resp = httpx.post(
         f"{config.ANTHROPIC_BASE_URL}/v1/messages",
@@ -157,6 +151,30 @@ def _call_anthropic(payload: dict) -> str:
     return "\n".join(p for p in parts if p).strip()
 
 
+def _run(system: str, user: str) -> tuple[str | None, str | None]:
+    """Kjør et kall og oversett feil til en lesbar norsk melding. Viser Anthropics
+    FAKTISKE feiltekst (f.eks. «credit balance too low», ugyldig modell) i stedet
+    for bare statuskoden. Returnerer (tekst, feil) – nøyaktig én er satt."""
+    try:
+        return _call(system, user), None
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        msg = ""
+        try:
+            msg = ((e.response.json() or {}).get("error", {}) or {}).get("message", "")
+        except ValueError:
+            msg = (e.response.text or "")[:200]
+        if status == 401:
+            detail = "ugyldig API-nøkkel (sjekk nøkkelen i Innstillinger)"
+        elif status == 429:
+            detail = "ratebegrenset – prøv igjen om litt"
+        else:
+            detail = f"HTTP {status}" + (f": {msg}" if msg else "")
+        return None, f"KI-en feilet – {detail}"
+    except (httpx.HTTPError, ValueError, KeyError) as e:
+        return None, f"KI-en feilet: {e}"
+
+
 def generate(month: str | None = None, persons: str | None = None,
              force: bool = False) -> dict:
     """Returner KI-analysen for gitt måned. Faller tilbake på {available: False}
@@ -170,29 +188,55 @@ def generate(month: str | None = None, persons: str | None = None,
     if not force and key in _cache:
         return {**_cache[key], "cached": True}
 
-    payload = _build_payload(dash)
-    try:
-        text = _call_anthropic(payload)
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        # Vis Anthropics FAKTISKE feilmelding (f.eks. «credit balance too low»,
-        # ugyldig modell), ikke bare statuskoden – ellers er feilen umulig å tolke.
-        msg = ""
-        try:
-            msg = ((e.response.json() or {}).get("error", {}) or {}).get("message", "")
-        except ValueError:
-            msg = (e.response.text or "")[:200]
-        if status == 401:
-            detail = "ugyldig API-nøkkel (sjekk nøkkelen i Innstillinger)"
-        elif status == 429:
-            detail = "ratebegrenset – prøv igjen om litt"
-        else:
-            detail = f"HTTP {status}" + (f": {msg}" if msg else "")
-        return {"available": True, "text": None, "error": f"KI-analysen feilet – {detail}"}
-    except (httpx.HTTPError, ValueError, KeyError) as e:
-        return {"available": True, "text": None, "error": f"KI-analysen feilet: {e}"}
+    user = ("Her er månedens aggregerte tall (JSON). Gi analysen:\n\n"
+            + json.dumps(_build_payload(dash), ensure_ascii=False, indent=2))
+    text, err = _run(_SYSTEM, user)
+    if err:
+        return {"available": True, "text": None, "error": err.replace("KI-en", "KI-analysen")}
 
     result = {"available": True, "text": text or None, "model": model()}
     if text:
         _cache[key] = result
     return {**result, "cached": False}
+
+
+_QA_SYSTEM = (
+    "Du er en hjelpsom norsk privatøkonomi-assistent for eieren (Frode). Du får "
+    "KUN aggregerte tall (kategorisummer, budsjett, inntekt/forbruk, sparerate, "
+    "lånerenter, netto formue, cashflow pr. måned) – ALDRI enkelttransaksjoner, "
+    "mottakere, datoer eller navn. Svar kort og konkret på spørsmålet basert på "
+    "tallene du har. Regn gjerne enkelt der det hjelper. Hvis spørsmålet krever "
+    "data du IKKE har (spesifikke kjøp, hvem/hvor, en konkret dato), si tydelig "
+    "at du ikke har den detaljen her, og at det må sjekkes i transaksjonslista. "
+    "Finn ALDRI på tall. Svar på norsk, uten unødig innledning."
+)
+
+
+def _qa_payload(dash: dict) -> dict:
+    """Kontekst for spørsmål-svar: samme trygge, aggregerte grunnlag som analysen,
+    pluss netto formue og cashflow-historikk (label + netto) for litt trend."""
+    p = _build_payload(dash)
+    p["nettoFormue"] = dash.get("kpis", {}).get("netWorth")
+    p["cashflowSisteMnd"] = [
+        {"mnd": c.get("month"), "nettoKr": c.get("net")} for c in dash.get("cashflow", [])
+    ]
+    return p
+
+
+def ask(question: str, month: str | None = None, persons: str | None = None) -> dict:
+    """Fritekst-spørsmål om økonomien. Kun aggregerte tall sendes som kontekst."""
+    if not configured():
+        return {"available": False}
+    q = (question or "").strip()
+    if not q:
+        return {"available": True, "answer": None, "error": "Skriv inn et spørsmål."}
+    q = q[:500]  # kort spørsmål; hindrer at store mengder tekst sendes ut
+
+    dash = aggregate.build_dashboard(month, persons)
+    user = ("Aggregerte tall (JSON):\n\n"
+            + json.dumps(_qa_payload(dash), ensure_ascii=False, indent=2)
+            + "\n\nSpørsmål: " + q)
+    text, err = _run(_QA_SYSTEM, user)
+    if err:
+        return {"available": True, "answer": None, "error": err}
+    return {"available": True, "answer": text or None, "model": model()}

@@ -13,6 +13,7 @@ const state = {
   budgetYear: null,
   budgetData: null,
   ai: { month: null, text: null, error: null, loading: false },
+  aiQ: { q: "", answer: null, error: null, loading: false },
 };
 
 const $app = document.getElementById("app");
@@ -198,6 +199,7 @@ function renderDashboard() {
         <div id="ai-insight">${aiInsightBox()}</div>
       </div>
     </div>` : ""}
+    ${aiAskCard()}
     <div class="main-grid">
       ${categoryCard(d)}
       <div class="right-col">
@@ -214,6 +216,15 @@ function renderDashboard() {
 
 /* ---------- KI-analyse ---------- */
 
+// KI-svar er korte kulepunkter (‑/•) eller løpende tekst – render begge pent.
+function aiTextHtml(text) {
+  const lines = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const bullets = lines.filter((l) => /^[-•*]/.test(l));
+  return bullets.length
+    ? `<ul class="ai-list">${bullets.map((l) => `<li>${esc(l.replace(/^[-•*]\s*/, ""))}</li>`).join("")}</ul>`
+    : `<div class="ai-text">${lines.map(esc).join("<br>")}</div>`;
+}
+
 function aiButton() {
   if (!(state.status && state.status.ai_enabled)) return "";
   const cur = state.month || currentYm();
@@ -229,13 +240,58 @@ function aiInsightBox() {
   if (state.ai.loading && !state.ai.text) return `<div class="ai-loading">Ber KI om en analyse …</div>`;
   if (state.ai.error) return `<div class="ai-error">${esc(state.ai.error)}</div>`;
   if (!state.ai.text) return "";
-  // Modellen svarer med korte kulepunkter (‑ eller •); render som liste.
-  const lines = state.ai.text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const bullets = lines.filter((l) => /^[-•*]/.test(l));
-  const body = bullets.length
-    ? `<ul class="ai-list">${bullets.map((l) => `<li>${esc(l.replace(/^[-•*]\s*/, ""))}</li>`).join("")}</ul>`
-    : `<div class="ai-text">${lines.map(esc).join("<br>")}</div>`;
-  return `<div class="ai-analysis"><div class="ai-analysis-tag">✻ KI-analyse</div>${body}</div>`;
+  return `<div class="ai-analysis"><div class="ai-analysis-tag">✻ KI-analyse</div>${aiTextHtml(state.ai.text)}</div>`;
+}
+
+/* ---------- Spør KI-en ---------- */
+
+function aiAskCard() {
+  if (!(state.status && state.status.ai_enabled)) return "";
+  const busy = state.aiQ.loading;
+  return `<div class="ai ai-ask">
+    <div class="ai-icon">?</div>
+    <div style="flex:1">
+      <div class="ai-title">Spør KI-en om økonomien din</div>
+      <div class="ai-ask-row">
+        <input id="ai-q" placeholder="F.eks. Hvorfor er sparerata negativ? Hva bør jeg kutte?" value="${esc(state.aiQ.q)}"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();askAi()}">
+        <button class="btn-dark" onclick="askAi()" ${busy ? "disabled" : ""}>${busy ? "Tenker…" : "Spør"}</button>
+      </div>
+      <div class="sub" style="margin-top:6px">Kun aggregerte tall brukes som grunnlag – aldri enkelttransaksjoner, mottakere eller navn. Modellen sier fra om den mangler detaljer.</div>
+      <div id="ai-answer">${aiAnswerBox()}</div>
+    </div>
+  </div>`;
+}
+
+function aiAnswerBox() {
+  if (state.aiQ.loading) return `<div class="ai-loading">KI-en tenker …</div>`;
+  if (state.aiQ.error) return `<div class="ai-error">${esc(state.aiQ.error)}</div>`;
+  if (!state.aiQ.answer) return "";
+  return `<div class="ai-analysis">${aiTextHtml(state.aiQ.answer)}</div>`;
+}
+
+async function askAi() {
+  const el = document.getElementById("ai-q");
+  const q = (el && el.value || "").trim();
+  if (!q || state.aiQ.loading) return;
+  state.aiQ = { q, answer: null, error: null, loading: true };
+  const box = document.getElementById("ai-answer");
+  if (box) box.innerHTML = aiAnswerBox();
+  const btn = document.querySelector(".ai-ask button");
+  if (btn) { btn.disabled = true; btn.textContent = "Tenker…"; }
+  try {
+    const res = await api.post("/api/ask", { question: q, month: state.month, persons: state.persons.join(",") });
+    state.aiQ = {
+      q, loading: false, answer: res.answer || null,
+      error: res.available === false ? null : (res.error || (res.answer ? null : "Ingen svar.")),
+    };
+  } catch (e) {
+    state.aiQ = { q, loading: false, answer: null, error: (e && e.error) || "Spørsmålet feilet." };
+  }
+  const box2 = document.getElementById("ai-answer");
+  if (box2) box2.innerHTML = aiAnswerBox();
+  const btn2 = document.querySelector(".ai-ask button");
+  if (btn2) { btn2.disabled = false; btn2.textContent = "Spør"; }
 }
 
 async function loadInsight(force) {
@@ -1696,7 +1752,7 @@ Object.assign(window, {
   setPerson, setTxLabel, setTxFlow, setTxAccount, setTxAmount, clearTxAmount, clearTxAccount, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory, loanTip, loanTipHide,
-  loadInsight, saveAiKey,
+  loadInsight, saveAiKey, askAi,
 });
 
 init();

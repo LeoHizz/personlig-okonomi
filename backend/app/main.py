@@ -297,6 +297,14 @@ def ai_insight(month: str | None = None, persons: str | None = None,
     return insight.generate(month, persons, force=force)
 
 
+@app.post("/api/ask")
+async def ai_ask(request: Request):
+    """Fritekst-spørsmål til KI-en om egen økonomi. Kun aggregerte tall sendes
+    som kontekst (samme personvern-grense som analysen)."""
+    body = await request.json()
+    return insight.ask(body.get("question", ""), body.get("month"), body.get("persons"))
+
+
 @app.get("/api/source-status")
 def source_status():
     """Innsyn i kilde-laget: hvor mye rådata vi har, og siste synk-forsøk (m/feil)."""
