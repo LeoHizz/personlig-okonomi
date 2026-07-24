@@ -266,6 +266,58 @@ async function loadInsight(force) {
   if (title2) title2.innerHTML = "Månedens oppsummering" + aiButton();
 }
 
+const AI_MODELS = [
+  ["claude-sonnet-5", "Sonnet 5 (anbefalt)"],
+  ["claude-haiku-4-5", "Haiku 4.5 (billigst)"],
+  ["claude-opus-4-8", "Opus 4.8 (kraftigst)"],
+];
+
+function aiSettingsBlock(ai) {
+  const on = ai.configured;
+  const status = on
+    ? `<span style="color:var(--green);font-weight:600">På</span> – nøkkel fra ${esc(ai.source)}${ai.hint ? ` (<code>${esc(ai.hint)}</code>)` : ""}`
+    : `<span style="color:#9aa0aa">Av</span> – ingen nøkkel lagret`;
+  const cur = ai.model || "claude-sonnet-5";
+  const opts = AI_MODELS.map(([v, l]) => `<option value="${v}"${v === cur ? " selected" : ""}>${l}</option>`).join("");
+  const removeBtn = (on && ai.source === "innstillinger")
+    ? `<button class="chip-btn" onclick="saveAiKey(true)" style="border-color:#e0a3a3;color:#b5546a">Fjern nøkkel</button>` : "";
+  return `<div class="field" style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
+      <label>KI-analyse (valgfritt)</label>
+      <div class="sub" style="margin:0 0 8px">Gir dashboardet en analyse som flagger avvik, mulige feil og gir råd. <b>Kun aggregerte tall</b> (kategorisummer, inntekt/forbruk/budsjett/sparerate/lånerenter) sendes til Anthropic – aldri enkelttransaksjoner eller navn. Nøkkel lages på console.anthropic.com (du betaler per bruk selv).</div>
+      <div style="font-size:12.5px;margin-bottom:8px">Status: ${status}</div>
+      <input id="set_ai_key" type="password" autocomplete="off" placeholder="${on ? "Lim inn ny nøkkel for å bytte (sk-ant-…)" : "Lim inn nøkkel (sk-ant-…)"}" style="width:100%">
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <select id="set_ai_model" style="max-width:220px">${opts}</select>
+        <button class="btn-dark" onclick="saveAiKey(false)">Lagre KI-nøkkel</button>
+        ${removeBtn}
+      </div>
+      <div class="sub" style="margin-top:6px">Nøkkelen lagres i din lokale database på serveren, ikke i noen fil. Den vises aldri i klartekst igjen – kun et maskert hint.</div>
+    </div>`;
+}
+
+async function saveAiKey(clear) {
+  const modelEl = document.getElementById("set_ai_model");
+  const keyEl = document.getElementById("set_ai_key");
+  const body = {};
+  if (modelEl) body.model = modelEl.value;
+  if (clear) {
+    body.api_key = "";
+  } else {
+    const v = (keyEl && keyEl.value || "").trim();
+    if (v) body.api_key = v;   // sett nøkkel kun når noe faktisk er skrevet inn
+  }
+  try {
+    const res = await api.post("/api/ai-key", body);
+    if (settingsCache) settingsCache.ai = res.ai;
+    if (state.status) state.status.ai_enabled = res.ai.configured;
+    if (keyEl) keyEl.value = "";
+    toast(clear ? "KI-nøkkel fjernet" : "KI-innstillinger lagret");
+    renderSettings("generelt");
+  } catch (e) {
+    toast((e && e.error) || "Kunne ikke lagre KI-nøkkel");
+  }
+}
+
 function demoBanner() {
   if (!(state.status && state.status.demo)) return "";
   return `<div class="banner" style="background:#fff4d6;border-color:#e6c766;margin-bottom:12px">
@@ -1292,7 +1344,8 @@ function renderSettings(tab) {
           ? `<button class="btn-dark" onclick="toggleDemo(false)">🎭 Skru AV demo (tilbake til ekte tall)</button>`
           : `<button class="chip-btn" onclick="toggleDemo(true)">🎭 Skru PÅ demo (falske tall for visning)</button>`}</div>
         <div class="sub" style="margin-top:6px">Bytter midlertidig til falske tall for å vise appen fram. Ekte data røres ikke, og kommer tilbake når du skrur av (eller ved omstart).</div>
-      </div>`;
+      </div>
+      ${aiSettingsBlock(s.ai || {})}`;
   } else if (tab === "kontoer") {
     const acctKey = (a) => norAccount(a.iban, a.bban).replace(/\./g, "");
     const acctCounts = {};
@@ -1643,6 +1696,7 @@ Object.assign(window, {
   setPerson, setTxLabel, setTxFlow, setTxAccount, setTxAmount, clearTxAmount, clearTxAccount, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory, loanTip, loanTipHide,
+  loadInsight, saveAiKey,
 });
 
 init();

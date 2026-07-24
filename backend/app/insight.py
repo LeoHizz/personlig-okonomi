@@ -16,10 +16,41 @@ from __future__ import annotations
 
 import httpx
 
-from . import aggregate, config
+from . import aggregate, config, db
 
 _TIMEOUT = httpx.Timeout(60.0)
 _ANTHROPIC_VERSION = "2023-06-01"
+
+
+def api_key() -> str:
+    """Effektiv API-nøkkel: DB-innstilling (satt i grensesnittet) har forrang,
+    ellers .env. Da kan Frode bytte nøkkel fra Innstillinger uten å røre filer."""
+    return (db.get_setting("anthropic_api_key", "") or "").strip() or config.ANTHROPIC_API_KEY
+
+
+def model() -> str:
+    return (db.get_setting("ai_model", "") or "").strip() or config.AI_MODEL
+
+
+def configured() -> bool:
+    return bool(api_key())
+
+
+def status_dict() -> dict:
+    """Trygg status til grensesnittet – aldri hele nøkkelen, kun et maskert hint."""
+    k = api_key()
+    from_db = bool((db.get_setting("anthropic_api_key", "") or "").strip())
+    hint = (k[:8] + "…" + k[-4:]) if len(k) > 14 else ("…" if k else "")
+    return {
+        "configured": bool(k),
+        "hint": hint,
+        "source": "innstillinger" if from_db else ("env-fil" if config.ANTHROPIC_API_KEY else "ingen"),
+        "model": model(),
+    }
+
+
+def clear_cache() -> None:
+    _cache.clear()
 
 # Enkel cache pr. (måned, personer) så vi ikke betaler for et nytt kall hver gang
 # brukeren åpner analysen. Tømmes ved omstart – godt nok for hjemmebruk.
@@ -97,7 +128,7 @@ def _call_anthropic(payload: dict) -> str:
     import json
 
     body = {
-        "model": config.AI_MODEL,
+        "model": model(),
         "max_tokens": 1024,
         # Analysen er liten; slå av «thinking» for å holde token/kostnad nede.
         "thinking": {"type": "disabled"},
@@ -113,7 +144,7 @@ def _call_anthropic(payload: dict) -> str:
     resp = httpx.post(
         f"{config.ANTHROPIC_BASE_URL}/v1/messages",
         headers={
-            "x-api-key": config.ANTHROPIC_API_KEY,
+            "x-api-key": api_key(),
             "anthropic-version": _ANTHROPIC_VERSION,
             "content-type": "application/json",
         },
@@ -131,7 +162,7 @@ def generate(month: str | None = None, persons: str | None = None,
     """Returner KI-analysen for gitt måned. Faller tilbake på {available: False}
     når ingen nøkkel er satt, og på {error: ...} ved API-feil – slik at
     frontend alltid kan vise den regelbaserte oppsummeringen ved siden av."""
-    if not config.ai_configured():
+    if not configured():
         return {"available": False}
 
     dash = aggregate.build_dashboard(month, persons)
@@ -149,7 +180,7 @@ def generate(month: str | None = None, persons: str | None = None,
     except (httpx.HTTPError, ValueError, KeyError) as e:
         return {"available": True, "text": None, "error": f"KI-analysen feilet: {e}"}
 
-    result = {"available": True, "text": text or None, "model": config.AI_MODEL}
+    result = {"available": True, "text": text or None, "model": model()}
     if text:
         _cache[key] = result
     return {**result, "cached": False}

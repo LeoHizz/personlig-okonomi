@@ -267,7 +267,7 @@ def status():
         "country": config.COUNTRY,
         "app_base_url": config.APP_BASE_URL,
         "demo": db.is_demo(),
-        "ai_enabled": config.ai_configured(),
+        "ai_enabled": insight.configured(),
     }
 
 
@@ -505,7 +505,22 @@ def get_settings():
             "COALESCE(a.name, s.account_id) AS account, a.bank_code AS bank "
             "FROM sync_runs s LEFT JOIN accounts a ON a.id = s.account_id "
             "ORDER BY s.id DESC LIMIT 25")],
+        "ai": insight.status_dict(),
     }
+
+
+@app.post("/api/ai-key")
+async def save_ai_key(request: Request):
+    """Lagre/bytt/fjern Anthropic-nøkkel og modell fra grensesnittet (lagres i
+    databasen, ikke i .env). Tom `api_key` fjerner DB-nøkkelen og faller
+    eventuelt tilbake på .env. Selve nøkkelen sendes aldri tilbake – kun status."""
+    body = await request.json()
+    if "api_key" in body:
+        db.set_setting("anthropic_api_key", (body.get("api_key") or "").strip())
+    if "model" in body:
+        db.set_setting("ai_model", (body.get("model") or "").strip())
+    insight.clear_cache()  # ny nøkkel/modell → ikke server gammel analyse
+    return {"ok": True, "ai": insight.status_dict()}
 
 
 def _accounts_with_balance() -> list[dict]:
