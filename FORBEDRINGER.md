@@ -73,7 +73,7 @@ proaktivt:
 🔎 Avklares: terskel for «stille stopp»-varsel (2–3 dager?). Egen «bank-helse»-widget
 vs. banner. Relaterer til den ærlige synk-rapporteringen som nettopp ble lagt inn.
 
-### 6. Bruk bankens EKSAKTE rente/avdrag-splitt når den finnes 🆕
+### 6. Bruk bankens EKSAKTE rente/avdrag-splitt når den finnes ⏸️ UTSATT (API-blokkert)
 _(2026-07-22)_
 Lånerenter beregnes i dag via amortiseringsestimat (startsaldo + rente + terminbeløp).
 Men banken oppgir ofte den nøyaktige splitten i selve transaksjonsteksten, f.eks. fra
@@ -82,8 +82,9 @@ CSV-eksporten for boliglånet (−24 036):
 Parse denne når den finnes → eksakt rente/avdrag per måned i stedet for estimat, og
 terminomkostninger som eget lite gebyr. Mer presist enn amortiseringen, og selvkorrigerende
 ved flytende rente.
-🔎 Avklares: leverer Enable Banking-API-et denne detaljen i `remittance`, eller bare
-CSV-eksporten? (Via API så vi kun «Lån · 36» — altså kortere.) Hvis kun CSV: gjelder
+**VERIFISERT 22.07:** API-et leverer det IKKE — remittance_information er bare ['Lån']/['Til:<kontonr>'], bank_transaction_code={code:'36'}. Detaljen finnes kun i CSV-eksporten. For API-lån (Frodes oppsett) gir #6 ingen gevinst; CSV-import ved siden av API = duplikatrisiko. UTSATT til evt. CSV-only lånekonto eller manuell splitt-innfylling.
+
+(Opprinnelig:) Hvis kun CSV: gjelder
 forslaget CSV-importerte lån; ellers undersøk om API-remittance har mer. Fallback til
 amortiseringsestimatet når teksten mangler. Relaterer til lån=overføring-modellen og
 rente/avdrag-grafen som nettopp ble lagt inn.
