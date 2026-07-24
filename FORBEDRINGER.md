@@ -21,15 +21,21 @@ I butikk-oversikten («Siste kjøp», f.eks. ADYEN N.V.) vises kun kontonavn
 etikett (samme eier-label som brukes ellers, f.eks. Felles/DNB/Jobb) også her,
 slik at hver transaksjonslinje viser både konto og eier.
 
-### 2. KI-oppsummering: avvik, feil/mangler og handlingsforslag 🆕
+### 2. KI-oppsummering: avvik, feil/mangler og handlingsforslag ✅ FERDIG (Wave 4)
 _(2026-07-22)_
 KI-oppsummeringen skal ikke bare beskrive tallene, men aktivt peke på potensielle
 feil/mangler og foreslå konkrete aksjoner når den ser noe. Eks. (kun til
 inspirasjon): unaturlig høye rentekostnader sammenlignet med normalen → tips om å
 redusere. Altså: flagg avvik/utliggere, mulige datafeil (feilkategorisering,
 manglende poster), og gi handlingsrettede råd der det er relevant.
-🔎 Avklares: hva sammenlignes mot (egen historikk / typiske andeler)? Hvor konservativ
-skal den være for å unngå «støy»/falske alarmer?
+**LØST 24.07 (ekte LLM-integrasjon):** ny `insight.py` + `/api/insight`, opt-in via
+`ANTHROPIC_API_KEY` (uten nøkkel: dagens regelbaserte oppsummering, ingen data ut).
+Modell `claude-sonnet-5` (konfigurerbar via `AI_MODEL`). **Personvern:** kun
+aggregerte tall sendes (kategorisummer, inntekt/forbruk/budsjett/sparerate/lånerenter)
+– aldri enkelttransaksjoner, mottakere, navn eller kontonummer (`_build_payload`
+stripper `items`; verifisert i test). Systemprompt ber modellen flagge avvik +
+mulige datafeil + gi 1–3 konkrete råd, konservativt for å unngå støy. Frontend:
+«KI-analyse»-knapp på oppsummeringskortet, cache pr. måned, kalles kun på forespørsel.
 
 ### 3. Kategoriregler bør kunne betinges på konto ✅ FERDIG (Wave 2)
 _(2026-07-22)_

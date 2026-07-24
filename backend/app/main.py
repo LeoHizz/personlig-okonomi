@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 import json
 
-from . import aggregate, categorize, config, db, demo, provider as gc, importer, labels, rawstore, sync
+from . import aggregate, categorize, config, db, demo, provider as gc, importer, insight, labels, rawstore, sync
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 log = logging.getLogger("okonomi")
@@ -267,6 +267,7 @@ def status():
         "country": config.COUNTRY,
         "app_base_url": config.APP_BASE_URL,
         "demo": db.is_demo(),
+        "ai_enabled": config.ai_configured(),
     }
 
 
@@ -285,6 +286,15 @@ async def demo_toggle(request: Request):
 @app.get("/api/dashboard")
 def dashboard(month: str | None = None, persons: str | None = None):
     return aggregate.build_dashboard(month, persons)
+
+
+@app.get("/api/insight")
+def ai_insight(month: str | None = None, persons: str | None = None,
+               force: bool = False):
+    """KI-analyse av månedens tall. Kun aggregerte tall sendes ut; aktiv kun når
+    ANTHROPIC_API_KEY er satt (ellers {available: false} → frontend viser den
+    regelbaserte oppsummeringen)."""
+    return insight.generate(month, persons, force=force)
 
 
 @app.get("/api/source-status")

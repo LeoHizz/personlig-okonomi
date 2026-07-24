@@ -73,6 +73,20 @@ AUTO_SYNC = os.getenv("AUTO_SYNC", "1").strip() not in ("0", "false", "no", "")
 # Klokketime (0–23, lokal servertid) for den daglige synken.
 AUTO_SYNC_HOUR = int(os.getenv("AUTO_SYNC_HOUR", "5"))
 
+# --- AI-analyse (valgfritt) ---
+# Settes ANTHROPIC_API_KEY, får dashboardet en KI-drevet analyse som flagger
+# avvik, mulige datafeil og gir konkrete råd. Uten nøkkel faller appen tilbake
+# på den regelbaserte oppsummeringen – ingen data forlater serveren.
+# PERSONVERN: kun aggregerte tall sendes ut (kategorisummer, inntekt/forbruk/
+# budsjett/sparerate/lånerenter) – aldri enkelttransaksjoner, mottakere eller navn.
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-5").strip()
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+
+
+def ai_configured() -> bool:
+    return bool(ANTHROPIC_API_KEY)
+
 
 def gocardless_configured() -> bool:
     return bool(GC_SECRET_ID and GC_SECRET_KEY)

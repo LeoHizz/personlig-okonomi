@@ -12,6 +12,7 @@ const state = {
   label: "Alle",
   budgetYear: null,
   budgetData: null,
+  ai: { month: null, text: null, error: null, loading: false },
 };
 
 const $app = document.getElementById("app");
@@ -191,8 +192,11 @@ function renderDashboard() {
     </div>
     ${d.summary ? `<div class="ai">
       <div class="ai-icon">✻</div>
-      <div><div class="ai-title">Månedens oppsummering</div>
-      <div class="ai-text">${esc(d.summary)}</div></div>
+      <div style="flex:1">
+        <div class="ai-title">Månedens oppsummering${aiButton()}</div>
+        <div class="ai-text">${esc(d.summary)}</div>
+        <div id="ai-insight">${aiInsightBox()}</div>
+      </div>
     </div>` : ""}
     <div class="main-grid">
       ${categoryCard(d)}
@@ -206,6 +210,60 @@ function renderDashboard() {
       </div>
     </div>
   </div>`;
+}
+
+/* ---------- KI-analyse ---------- */
+
+function aiButton() {
+  if (!(state.status && state.status.ai_enabled)) return "";
+  const cur = state.month || currentYm();
+  const has = state.ai.month === cur && (state.ai.text || state.ai.error);
+  const label = state.ai.loading ? "Analyserer…" : (has ? "Oppdater KI-analyse" : "✨ KI-analyse");
+  const dis = state.ai.loading ? "disabled" : "";
+  return ` <button class="ai-btn" ${dis} onclick="loadInsight(true)">${label}</button>`;
+}
+
+function aiInsightBox() {
+  const cur = state.month || currentYm();
+  if (state.ai.month !== cur) return "";
+  if (state.ai.loading && !state.ai.text) return `<div class="ai-loading">Ber KI om en analyse …</div>`;
+  if (state.ai.error) return `<div class="ai-error">${esc(state.ai.error)}</div>`;
+  if (!state.ai.text) return "";
+  // Modellen svarer med korte kulepunkter (‑ eller •); render som liste.
+  const lines = state.ai.text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const bullets = lines.filter((l) => /^[-•*]/.test(l));
+  const body = bullets.length
+    ? `<ul class="ai-list">${bullets.map((l) => `<li>${esc(l.replace(/^[-•*]\s*/, ""))}</li>`).join("")}</ul>`
+    : `<div class="ai-text">${lines.map(esc).join("<br>")}</div>`;
+  return `<div class="ai-analysis"><div class="ai-analysis-tag">✻ KI-analyse</div>${body}</div>`;
+}
+
+async function loadInsight(force) {
+  const cur = state.month || currentYm();
+  if (state.ai.loading) return;
+  state.ai = { month: cur, text: state.ai.month === cur ? state.ai.text : null, error: null, loading: true };
+  const box = document.getElementById("ai-insight");
+  const title = document.querySelector(".ai-title");
+  if (box) box.innerHTML = aiInsightBox();
+  if (title) title.innerHTML = "Månedens oppsummering" + aiButton();
+  try {
+    const params = new URLSearchParams();
+    if (state.month) params.set("month", state.month);
+    if (state.persons.length) params.set("persons", state.persons.join(","));
+    if (force) params.set("force", "1");
+    const res = await api.get("/api/insight?" + params.toString());
+    state.ai = {
+      month: cur, loading: false,
+      text: res.text || null,
+      error: res.available === false ? null : (res.error || (res.text ? null : "Ingen analyse ble generert.")),
+    };
+  } catch (e) {
+    state.ai = { month: cur, loading: false, text: null, error: (e && e.error) || "KI-analysen feilet." };
+  }
+  const box2 = document.getElementById("ai-insight");
+  const title2 = document.querySelector(".ai-title");
+  if (box2) box2.innerHTML = aiInsightBox();
+  if (title2) title2.innerHTML = "Månedens oppsummering" + aiButton();
 }
 
 function demoBanner() {
