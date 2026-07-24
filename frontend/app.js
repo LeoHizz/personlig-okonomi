@@ -435,7 +435,6 @@ function header() {
       </div>
     </div>
     <div class="head-actions">
-      <button class="chip-btn" onclick="syncNow()" id="syncBtn">↻ Synk</button>
       <button class="chip-btn" onclick="goAnalyse()">Analyse</button>
       <button class="chip-btn" onclick="goBudget()">Budsjett</button>
       <button class="chip-btn" onclick="openSettings()">⚙︎ Innstillinger</button>
