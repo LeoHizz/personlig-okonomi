@@ -59,7 +59,7 @@ Tre modelleringsvalg (til diskusjon om ambisjonsnivå):
 Vipps-refusjon fra ekte inntekt (mønster/regel/beløp-match mot nylig utlegg)?
 Relaterer til #3 (kontobetingede regler) og lån=overføring-modellen.
 
-### 5. Proaktiv varsling om bank-tilkoblingens helse 🆕
+### 5. Proaktiv varsling om bank-tilkoblingens helse ✅ FERDIG (Wave 2)
 _(2026-07-22)_
 I dag oppdager man at en bank har sluttet å levere data først når tallene stopper
 (f.eks. SPV som ga 400 i 2 døgn uten at noe sa fra på forsiden). Appen bør varsle

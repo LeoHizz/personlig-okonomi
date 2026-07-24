@@ -626,8 +626,56 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "subscriptions": subs,
         "summary": summary_text,
         "reminders": reminders,
+        "alerts": _bank_health(),
         "txCount": len(txs),
     }
+
+
+def _bank_health() -> list[dict]:
+    """Proaktive varsler om bank-tilkoblingen: samtykke som nærmer seg 90-dagers
+    fornyelse (PSD2/SCA), og «stille stopp» (ingen vellykket synk på ≥3 dager)."""
+    out: list[dict] = []
+    today = date.today()
+
+    def _d(s):
+        try:
+            return date.fromisoformat((s or "")[:10])
+        except (ValueError, TypeError):
+            return None
+
+    # 1) Samtykke-alder – nyeste requisition per bank (samtykket varer ~90 dager).
+    for r in db.query(
+        "SELECT institution_name, MAX(created_at) AS created FROM requisitions "
+        "WHERE created_at IS NOT NULL AND institution_name != '' GROUP BY institution_name"
+    ):
+        cd = _d(r["created"])
+        if not cd:
+            continue
+        days_left = 90 - (today - cd).days
+        bank = r["institution_name"]
+        if days_left <= 0:
+            out.append({"level": "error", "text": f"{bank}-samtykket er trolig utløpt. Re-koble banken."})
+        elif days_left <= 14:
+            out.append({"level": "warn", "text": f"{bank}-samtykket bør fornyes om {days_left} dager (re-koble banken)."})
+
+    # 2) Stille stopp – bank ikke synket vellykket på ≥3 dager (per bank).
+    for r in db.query(
+        "SELECT a.institution_name AS bank, a.bank_code AS code, "
+        "MAX(CASE WHEN s.status='ok' THEN s.started_at END) AS last_ok, "
+        "MAX(s.started_at) AS last_try "
+        "FROM accounts a LEFT JOIN sync_runs s ON s.account_id = a.id "
+        "WHERE a.hidden = 0 AND a.institution_id NOT IN ('csv-import','demo') "
+        "GROUP BY a.institution_name"
+    ):
+        bank = r["bank"] or r["code"] or "Bank"
+        lo = _d(r["last_ok"])
+        if lo:
+            days = (today - lo).days
+            if days >= 3:
+                out.append({"level": "warn", "text": f"{bank} har ikke synket vellykket på {days} dager."})
+        elif r["last_try"]:
+            out.append({"level": "error", "text": f"{bank} har aldri synket vellykket. Sjekk tilkoblingen."})
+    return out
 
 
 def _csv_reminders() -> list[str]:

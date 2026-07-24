@@ -153,6 +153,18 @@ function needsSetupBanner() {
   return "";
 }
 
+function alertsBanner(d) {
+  const alerts = (d && d.alerts) || [];
+  if (!alerts.length) return "";
+  const rows = alerts
+    .map((a) => `<div style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:${a.level === "error" ? "#b5546a" : "#8a6d1a"}"><span>${a.level === "error" ? "⛔" : "⚠"}</span><span>${esc(a.text)}</span></div>`)
+    .join("");
+  return `<div style="background:#fff6f0;border:1px solid #f0d9c8;border-radius:12px;padding:12px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:6px">
+    <div style="font-weight:600;font-size:12.5px;color:#4a505a">Bank-tilkobling</div>${rows}
+    <div style="font-size:11.5px;color:#9aa0aa">Løs med «Koble til / re-koble bank» i Innstillinger → Kontoer.</div>
+  </div>`;
+}
+
 function renderDashboard() {
   const d = state.data;
   const banner = needsSetupBanner();
@@ -168,6 +180,7 @@ function renderDashboard() {
     ${header()}
     ${demoBanner()}
     ${banner}
+    ${alertsBanner(d)}
     ${personFilter(d)}
     <div class="kpi-grid">
       ${kpi("Netto formue", k.netWorth, k.netWorthNote)}
