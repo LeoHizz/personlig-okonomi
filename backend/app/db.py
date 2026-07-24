@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     product          TEXT,
     status           TEXT,
     is_asset         INTEGER DEFAULT 1,   -- teller som formue i netto formue
+    is_credit        INTEGER DEFAULT 0,   -- kredittkort: vis utestående, ikke disponibelt
+    credit_limit     REAL,                -- manuell kredittramme (nødbuffer-utregning)
     hidden           INTEGER DEFAULT 0,   -- skjul fra dashboard
     sort_order       INTEGER DEFAULT 100,
     created_at       TEXT,
@@ -123,7 +125,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     category        TEXT,
     category_source TEXT DEFAULT 'auto',  -- auto | manual
     status          TEXT,                 -- booked | pending
-    raw             TEXT
+    raw             TEXT,
+    labels          TEXT                  -- per-transaksjon-merkelapper (JSON)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
@@ -169,9 +172,29 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_acct ON sync_runs(account_id, started_a
 """
 
 
+# Kolonner lagt til over tid. Sikres i init_db() så ENHVER database får dem – også
+# demo.db, som ellers bare får grunn-skjemaet og da mangler f.eks. is_credit
+# (dashboardet + innstillinger feiler med «no such column»).
+_EVOLVING_COLUMNS = [
+    ("accounts", "bban", "TEXT"),
+    ("accounts", "provider_ref", "TEXT"),
+    ("accounts", "is_credit", "INTEGER DEFAULT 0"),
+    ("accounts", "credit_limit", "REAL"),
+    ("transactions", "labels", "TEXT"),
+    ("transactions", "entry_reference", "TEXT"),
+    ("raw_transactions", "status", "TEXT"),
+]
+
+
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    conn.commit()
+    for table in ("accounts", "transactions", "raw_transactions"):
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for tbl, col, decl in _EVOLVING_COLUMNS:
+            if tbl == table and col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     conn.commit()
 
 
