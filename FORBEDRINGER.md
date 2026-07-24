@@ -41,7 +41,7 @@ enn fra sparekonto.
 🔎 Avklares: konto som *valgfritt* tilleggsfelt (tom = gjelder alle, som i dag), så
 eksisterende regler ikke brytes. Match på konto-eier/etikett eller konkret konto?
 
-### 4. Refusjon av utlegg (Vipps-tilbakebetaling) feilklassifiseres som inntekt 🔎
+### 4. Refusjon av utlegg (Vipps-tilbakebetaling) feilklassifiseres som inntekt ✅ FERDIG (Wave 3)
 _(2026-07-22)_
 Scenario: Frode legger ut 1000 kr for en middag (→ forbruk «Restaurant»). Vennene
 vippser tilbake 200 kr hver. I dag kommer disse inn som **inntekt** → blåser opp både

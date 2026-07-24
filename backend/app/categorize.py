@@ -34,7 +34,12 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 8
+RULES_VERSION = 9
+
+# Positive innbetalinger under denne grensen er som regel refusjon/tilbakebetaling
+# (f.eks. Vipps fra venner for et utlegg), ikke ekte inntekt → føres som «Overføring»
+# så de ikke blåser opp inntekt/sparerate. Fra grensen og opp regnes som inntekt.
+SMALL_INCOME_LIMIT = 1000
 
 CATEGORY_ORDER = [
     "Kommunale avgifter",
@@ -347,15 +352,14 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 ]
 
 
-def _rules() -> list[tuple[str, str, str]]:
-    """Kombiner brukerregler (fra DB) med standardreglene. Brukerregler først.
-    Tredje felt = konto-id regelen er betinget av («» = gjelder alle kontoer)."""
+def _user_rules() -> list[tuple[str, str, str]]:
+    """Brukerregler (fra DB). Tredje felt = konto-id regelen er betinget av
+    («» = gjelder alle kontoer)."""
     from . import db
 
     user = db.get_setting("category_rules", []) or []
-    custom = [(r["pattern"].lower(), r["category"], (r.get("account") or "").strip())
-              for r in user if r.get("pattern")]
-    return custom + [(p, c, "") for (p, c) in DEFAULT_RULES]
+    return [(r["pattern"].lower(), r["category"], (r.get("account") or "").strip())
+            for r in user if r.get("pattern")]
 
 
 def learn_rule(counterparty: str | None, category: str) -> None:
@@ -505,15 +509,20 @@ def categorize(counterparty: str | None, remittance: str | None, amount: float,
                account_id: str | None = None) -> str:
     text = f"{counterparty or ''} {remittance or ''}".lower()
     aid = (account_id or "")
-    for pattern, category, acct in _rules():
-        # Kontobetinget regel: gjelder kun transaksjoner på den kontoen.
+    # 1) Brukerregler (eksplisitte valg) vinner – også kontobetingede.
+    for pattern, category, acct in _user_rules():
         if acct and acct != aid:
             continue
         if pattern in text:
-            # Positive beløp som traff en utgiftsregel er som regel refusjon/retur;
-            # men hvis regelen selv er Inntekt/Overføring, behold den.
             return category
-    # Fallback ut fra fortegn
+    # 2) Små innbetalinger = trolig refusjon/tilbakebetaling → Overføring (ikke inntekt).
+    if 0 < amount < SMALL_INCOME_LIMIT:
+        return "Overføring"
+    # 3) Innebygde regler.
+    for pattern, category in DEFAULT_RULES:
+        if pattern in text:
+            return category
+    # 4) Fallback ut fra fortegn.
     if amount > 0:
         return "Inntekt"
     return "Annet"
