@@ -175,8 +175,20 @@ def generate(month: str | None = None, persons: str | None = None,
         text = _call_anthropic(payload)
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
-        detail = "ratebegrenset – prøv igjen om litt" if status == 429 else f"HTTP {status}"
-        return {"available": True, "text": None, "error": f"KI-analysen feilet ({detail})."}
+        # Vis Anthropics FAKTISKE feilmelding (f.eks. «credit balance too low»,
+        # ugyldig modell), ikke bare statuskoden – ellers er feilen umulig å tolke.
+        msg = ""
+        try:
+            msg = ((e.response.json() or {}).get("error", {}) or {}).get("message", "")
+        except ValueError:
+            msg = (e.response.text or "")[:200]
+        if status == 401:
+            detail = "ugyldig API-nøkkel (sjekk nøkkelen i Innstillinger)"
+        elif status == 429:
+            detail = "ratebegrenset – prøv igjen om litt"
+        else:
+            detail = f"HTTP {status}" + (f": {msg}" if msg else "")
+        return {"available": True, "text": None, "error": f"KI-analysen feilet – {detail}"}
     except (httpx.HTTPError, ValueError, KeyError) as e:
         return {"available": True, "text": None, "error": f"KI-analysen feilet: {e}"}
 
