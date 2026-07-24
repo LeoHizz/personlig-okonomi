@@ -199,7 +199,6 @@ function renderDashboard() {
         <div id="ai-insight">${aiInsightBox()}</div>
       </div>
     </div>` : ""}
-    ${aiAskCard()}
     <div class="main-grid">
       ${categoryCard(d)}
       <div class="right-col">
@@ -1030,6 +1029,7 @@ async function renderAnalysis() {
     ${chips}
     ${labelChips}
     ${insights}
+    ${aiAskCard()}
     <div class="kpi-grid" style="margin-top:14px">
       ${kpi("Forbruk", t.expenseNow, `forrige: ${t.expensePrev}`)}
       ${kpi("Inntekt", t.incomeNow, `forrige: ${t.incomePrev}`)}
