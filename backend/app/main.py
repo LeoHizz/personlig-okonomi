@@ -488,6 +488,11 @@ def get_settings():
         "accounts": _accounts_with_balance(),
         "liquidity_history": [dict(r) for r in db.query(
             "SELECT date, net FROM liquidity_snapshots ORDER BY date DESC")],
+        "sync_runs": [dict(r) for r in db.query(
+            "SELECT s.started_at, s.status, s.http_status, s.count, s.error_detail, "
+            "COALESCE(a.name, s.account_id) AS account, a.bank_code AS bank "
+            "FROM sync_runs s LEFT JOIN accounts a ON a.id = s.account_id "
+            "ORDER BY s.id DESC LIMIT 25")],
     }
 
 
@@ -611,19 +616,32 @@ def refresh_all_accounts():
     rows = db.query(
         "SELECT id, name, provider_ref FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
     )
-    updated, errors, tx_total = 0, 0, 0
+    results = []
     for r in rows:
         try:
             _refresh_details(r["id"], r["provider_ref"], r["name"])
         except Exception:  # noqa: BLE001
             pass  # navn/IBAN er «best effort» – la synken avgjøre feil
         try:
-            res = sync.sync_account(r["id"], force=True)
-            tx_total += res.get("transactions", 0)
-            updated += 1
-        except Exception:  # noqa: BLE001
-            errors += 1
-    return {"updated": updated, "errors": errors, "transactions": tx_total}
+            results.append(sync.sync_account(r["id"], force=True))
+        except gc.Error as e:
+            results.append({"account_id": r["id"], "error": str(e), "status": getattr(e, "status", None)})
+    # Ærlig telling: sync_account reiser IKKE unntak på tx-feil (den returnerer tx_error),
+    # så tell feilede på resultatet – ellers ser 400/samtykke-feil ut som «oppdatert».
+    fails = [x for x in results if x.get("tx_error") or x.get("error")]
+    tx_total = sum((x.get("transactions") or 0) for x in results)
+    statuses = [(x.get("tx_status") or x.get("status")) for x in fails]
+    fail_ids = [x["account_id"] for x in fails]
+    fail_banks = {}
+    if fail_ids:
+        ph = ",".join("?" for _ in fail_ids)
+        fail_banks = {(x["bank_code"] or "?"): x["n"] for x in db.query(
+            f"SELECT bank_code, COUNT(*) AS n FROM accounts WHERE id IN ({ph}) GROUP BY bank_code", fail_ids)}
+    return {
+        "updated": len(results) - len(fails), "failed": len(fails), "transactions": tx_total,
+        "fail_banks": fail_banks, "rate_limited": 429 in statuses,
+        "needs_reauth": any(s in (400, 401, 403) for s in statuses),
+    }
 
 
 @app.post("/api/accounts-dedupe")

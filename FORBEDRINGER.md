@@ -14,7 +14,7 @@ Status-koder: 🆕 ny · 🔎 må avklares · ✅ ferdig · ⏸️ utsatt · ❌
 
 ## Innkommende (uvurdert)
 
-### 1. Vis kontoeier i butikk-detaljvisning 🆕
+### 1. Vis kontoeier i butikk-detaljvisning ✅ FERDIG (Wave 1)
 _(2026-07-22)_
 I butikk-oversikten («Siste kjøp», f.eks. ADYEN N.V.) vises kun kontonavn
 (Sparekonto / Brukskonto), ikke hvem kontoen tilhører. Legg til kontoeier /
@@ -55,7 +55,7 @@ Tre modelleringsvalg (til diskusjon om ambisjonsnivå):
 - **C) Refusjon/utlegg tilbakebetalt** — motposteres mot opprinnelig kategori, så
   netto-kostnad blir 200. Eneste som gir riktig inntekt, forbruk *og* sparerate.
   Krever ny «refusjon»-håndtering (og evt. kobling refusjon ↔ opprinnelig utlegg).
-🔎 Avklares: hvor sofistikert (B som quick win vs. C som mål)? Hvordan skille
+**VALGT: B** (behandle som Overføring – holdes utenfor inntekt/forbruk). 🔎 Avklares senere for C: hvor sofistikert? Hvordan skille
 Vipps-refusjon fra ekte inntekt (mønster/regel/beløp-match mot nylig utlegg)?
 Relaterer til #3 (kontobetingede regler) og lån=overføring-modellen.
 
@@ -88,7 +88,7 @@ forslaget CSV-importerte lån; ellers undersøk om API-remittance har mer. Fallb
 amortiseringsestimatet når teksten mangler. Relaterer til lån=overføring-modellen og
 rente/avdrag-grafen som nettopp ble lagt inn.
 
-### 7. Synk-logg / aktivitetslogg i appen 🆕
+### 7. Synk-logg / aktivitetslogg i appen ✅ FERDIG (Wave 1)
 _(2026-07-22)_
 Det finnes ingen synlig logg over synk-forsøk i appen, så man ser ikke hva som
 faktisk skjedde per konto (f.eks. at SPV-kontoene fikk 400 mens DNB gikk bra).
@@ -118,7 +118,7 @@ aktivt), eller er måned-om-gangen godt nok? (b) hvilke filtre prioriteres (bel�
 retning)? Egen «filter»-knapp/panel vs. inline-chips. Bygger på eksisterende
 clearCatFilter/clearFlowFilter-mønster.
 
-### 9. Konkrete rente/avdrag-tall: hover på lånegrafen + total-fordeling i Lån-kortet 🆕
+### 9. Konkrete rente/avdrag-tall: hover på lånegrafen + total-fordeling i Lån-kortet ✅ FERDIG (Wave 1)
 _(2026-07-22)_
 Lånehistorikk-grafen viser fordelingen fint visuelt, men de konkrete kronetallene er
 vanskelige å lese av.
@@ -127,7 +127,7 @@ vanskelige å lese av.
   en ordentlig hover.
 - **(b) Total-fordeling i «Lån»-kortet på forsiden:** en enkel grafikk som viser samlet
   avdrag vs. rente på tvers av ALLE lån.
-🔎 Avklares: (b) hvilken periode (i år / siste 12 mnd / totalt)? Per lån eller sum alle?
+**VALGT: Totalt** (hele nedbetalingen), sum alle lån. (Ferdig i Wave 1.)
 Merk også: `pay_match` fanger alle overføringer TIL lånekontoen (også småbeløp fra
 brukskonto), som påvirker split-summene – vurder om kun terminbeløpet skal telle. Relaterer
 til #6 (eksakt splitt fra banktekst) og rente/avdrag-grafen som nettopp ble lagt inn.

@@ -212,6 +212,25 @@ def _loan_interest(liabilities: list[dict], month: str, pay_map: dict | None = N
     return total
 
 
+def _loan_split_total(liabilities: list[dict], pay_map: dict | None = None) -> tuple[float, float]:
+    """Samlet (rente, avdrag) på tvers av ALLE auto-lån, over hele nedbetalingen vi har
+    faktiske betalinger for. Rente fra amortiseringen; avdrag = betalt − rente."""
+    tot_int = tot_prin = 0.0
+    for lb in liabilities or []:
+        if not lb.get("auto") or _parse_rate(lb.get("rate")) <= 0:
+            continue
+        pat = (lb.get("pay_match") or "").strip().lower()
+        if not pat:
+            continue
+        months = (pay_map or {}).get(pat, {})
+        for m, paid in months.items():
+            _, rente = _amortize(lb, m, months)
+            interest = min(rente, paid)
+            tot_int += interest
+            tot_prin += max(0.0, paid - interest)
+    return tot_int, tot_prin
+
+
 def _income_spending(txs: list[dict]) -> tuple[float, float]:
     """Som KPI-ene INN/UT: inntekt (positive, ekskl. Overføring) og forbruk
     (negative, ekskl. både Inntekt og Overføring). Brukes til cashflow så tallet
@@ -500,6 +519,9 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
             }
         )
 
+    # Samlet rente/avdrag-fordeling (hele nedbetalingen) – for grafikk i Lån-kortet.
+    loan_int_total, loan_prin_total = _loan_split_total(manual_liabilities, loan_pay_map)
+
     net_worth = asset_sum + manual_asset_sum - liability_sum
 
     # --- cashflow siste 7 måneder (netto = INN − UT inkl. lånerenter, som spareraten) ---
@@ -579,6 +601,11 @@ def build_dashboard(month: str | None = None, persons=None) -> dict:
         "totalExpenseFmt": _fmt(total_expense),
         "accounts": accounts,
         "loans": loans,
+        "loanSplit": {
+            "hasData": (loan_int_total + loan_prin_total) > 0,
+            "interest": round(loan_int_total), "principal": round(loan_prin_total),
+            "interestFmt": _fmt(loan_int_total), "principalFmt": _fmt(loan_prin_total),
+        },
         "liquidity": liquidity,
         "cashflow": cashflow,
         "trend": trend,
@@ -954,7 +981,8 @@ def build_merchant(name: str | None, persons=None, label: str | None = None) -> 
         {"date": _short_date(t["booking_date"]),
          "amtFmt": ("+" if t["amount"] > 0 else "−") + _fmt(abs(t["amount"])),
          "positive": t["amount"] > 0,
-         "acct": t["bank_code"] or t["acct_name"] or "", "cat": t["category"]}
+         "acct": t["bank_code"] or t["acct_name"] or "", "cat": t["category"],
+         "person": t["owner"] or ""}
         for t in txs[:12]
     ]
     return {

@@ -463,9 +463,27 @@ function loansCard(d) {
     )
     .join("");
   const anyEstimated = d.loans.some((l) => l.estimated);
+  const ls = d.loanSplit;
+  let splitBlock = "";
+  if (ls && ls.hasData) {
+    const tot = ls.interest + ls.principal || 1;
+    const prinPct = Math.round((ls.principal / tot) * 100);
+    splitBlock = `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <div class="loan-sub" style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span><i style="display:inline-block;width:9px;height:9px;background:var(--navy);border-radius:2px"></i> Avdrag ${ls.principalFmt}</span>
+        <span>Rente ${ls.interestFmt} <i style="display:inline-block;width:9px;height:9px;background:var(--amber-bright);border-radius:2px"></i></span>
+      </div>
+      <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line)">
+        <div style="width:${prinPct}%;background:var(--navy)"></div>
+        <div style="width:${100 - prinPct}%;background:var(--amber-bright)"></div>
+      </div>
+      <div class="loan-sub" style="margin-top:5px;font-size:11px;color:#9aa0aa">Fordeling hele nedbetalingen (alle lån)</div>
+    </div>`;
+  }
   return `<div class="card">
     <div class="card-title">Lån</div>
     ${items}
+    ${splitBlock}
     ${anyEstimated ? `<div class="loan-sub" style="margin-top:12px;font-size:11px;color:#9aa0aa">Estimert restgjeld beregnes fra startsaldo, terminbeløp og rente (amortisering). For best treff: bruk restgjeld i dag som startsaldo og denne måneden som startmåned.</div>` : ""}
   </div>`;
 }
@@ -972,7 +990,7 @@ async function openMerchant(name) {
     .join("");
   const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
   const recent = m.recent
-    .map((r) => `<div class="sel-item"><span>${esc(r.date)} <span class="muted">${esc(r.acct)}${r.cat ? " · " + esc(r.cat) : ""}</span></span><b style="color:${r.positive ? "var(--green)" : "var(--ink)"}">${esc(r.amtFmt)}</b></div>`)
+    .map((r) => `<div class="sel-item"><span>${esc(r.date)} <span class="muted">${esc(r.acct)}${r.person ? " · " + esc(r.person) : ""}${r.cat ? " · " + esc(r.cat) : ""}</span></span><b style="color:${r.positive ? "var(--green)" : "var(--ink)"}">${esc(r.amtFmt)}</b></div>`)
     .join("") || '<div class="muted" style="font-size:12.5px">Ingen kjøp.</div>';
   $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
@@ -985,6 +1003,27 @@ async function openMerchant(name) {
       <div style="margin-top:18px"><div class="card-title">Siste kjøp</div><div style="margin-top:8px">${recent}</div></div>
     </div>
   </div>`;
+}
+
+// Flytende hover-tooltip for lånegrafen (tydeligere enn native title).
+function loanTip(ev, label, interest, principal, amount) {
+  let t = document.getElementById("loanTip");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "loanTip";
+    t.style.cssText = "position:fixed;pointer-events:none;z-index:9999;background:var(--navy);color:#fff;padding:6px 10px;border-radius:7px;font-size:12px;line-height:1.4;box-shadow:0 3px 10px rgba(0,0,0,.28);white-space:nowrap";
+    document.body.appendChild(t);
+  }
+  t.innerHTML = (interest != null)
+    ? `<b>${esc(label)}</b><br>Rente ${numFmt(interest)} · Avdrag ${numFmt(principal)}`
+    : `<b>${esc(label)}</b><br>${numFmt(amount)} kr`;
+  t.style.display = "block";
+  t.style.left = Math.min(ev.clientX + 12, window.innerWidth - 160) + "px";
+  t.style.top = (ev.clientY - 14) + "px";
+}
+function loanTipHide() {
+  const t = document.getElementById("loanTip");
+  if (t) t.style.display = "none";
 }
 
 async function openLoanHistory(pattern, name) {
@@ -1003,15 +1042,16 @@ async function openLoanHistory(pattern, name) {
     .map((s) => {
       if (!s.amount) return `<div style="height:3%;background:var(--amber-bright);opacity:0.2"></div>`;
       const h = Math.max(3, Math.round((s.amount / mx) * 100));
+      const hov = `onmousemove="loanTip(event,'${jsq(s.label)}',${s.interest ?? "null"},${s.principal ?? "null"},${s.amount})" onmouseleave="loanTipHide()"`;
       if (m.hasSplit && s.interest != null) {
         // Avdrag (navy) øverst, rente (amber) nederst – proporsjonalt i stolpen.
         const iPct = Math.round((s.interest / s.amount) * 100);
-        return `<div style="height:${h}%;display:flex;flex-direction:column" title="${esc(s.label)}: rente ${numFmt(s.interest)} + avdrag ${numFmt(s.principal)} kr">
+        return `<div style="height:${h}%;display:flex;flex-direction:column;cursor:default" ${hov}>
           <div style="height:${100 - iPct}%;background:var(--navy)"></div>
           <div style="height:${iPct}%;background:var(--amber-bright)"></div>
         </div>`;
       }
-      return `<div style="height:${h}%;background:var(--amber-bright)" title="${esc(s.label)}: ${numFmt(s.amount)} kr"></div>`;
+      return `<div style="height:${h}%;background:var(--amber-bright);cursor:default" ${hov}></div>`;
     })
     .join("");
   const labels = m.series.map((s) => `<div>${esc(s.label)}</div>`).join("");
@@ -1128,6 +1168,20 @@ async function openSettings(tab) {
   renderSettings(tab || "generelt");
 }
 
+function syncLogHtml(s) {
+  const rows = (s.sync_runs || []).map((r) => {
+    const ok = r.status === "ok";
+    const detail = ok
+      ? `${r.count || 0} transaksjoner`
+      : `HTTP ${r.http_status || "?"}${r.error_detail ? " · " + esc(String(r.error_detail).slice(0, 60)) : ""}`;
+    return `<div class="sel-item"><span>${esc(fmtDateTime(r.started_at))} <span class="muted">${esc(r.account || "")}${r.bank ? " · " + esc(r.bank) : ""}</span></span><span style="color:${ok ? "var(--green)" : "#b5546a"};font-size:12px;white-space:nowrap">${ok ? "✓ " : "✕ "}${detail}</span></div>`;
+  }).join("");
+  return `<div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--line)">
+    <div class="card-title" style="margin-bottom:8px">Synk-logg <span class="muted" style="font-weight:400;font-size:12px">· siste forsøk</span></div>
+    <div class="sel-items">${rows || '<span style="color:#9aa0aa;font-size:12.5px">Ingen synk-forsøk registrert ennå.</span>'}</div>
+  </div>`;
+}
+
 function renderSettings(tab) {
   const s = settingsCache;
   const tabs = ["generelt", "kontoer", "regler", "merkelapper", "eiendeler", "lan", "likviditet"];
@@ -1192,6 +1246,7 @@ function renderSettings(tab) {
           )
           .join("")
       : '<div style="color:#9aa0aa;font-size:13px">Ingen kontoer koblet til enda.</div>');
+    body += syncLogHtml(s);
   } else if (tab === "regler") {
     body = `<div class="sub" style="margin-bottom:10px">Regler gjenkjennes automatisk framover. «Mønster» matcher tekst i transaksjonen (delstreng, uten hensyn til store/små bokstaver). Endrer du en kategori i transaksjonslista, lages en regel her automatisk.</div>
       <div id="ruleRows">${(s.category_rules || []).map((r) => ruleRow(r)).join("")}</div>
@@ -1353,7 +1408,15 @@ async function refreshAllAccounts() {
   toast("Henter saldo og transaksjoner fra bank …");
   try {
     const r = await api.post("/api/accounts-refresh-all", {});
-    toast(`Oppdatert ${r.updated} konto(er) · ${r.transactions || 0} transaksjoner${r.errors ? ` (${r.errors} feilet)` : ""}`);
+    const fails = r.failed || 0;
+    if (fails > 0) {
+      const banks = Object.entries(r.fail_banks || {}).map(([b, c]) => `${b}: ${c}`).join(", ");
+      const hint = r.needs_reauth ? " — re-autoriser banken (samtykke utløpt?)"
+        : r.rate_limited ? " — ratebegrensning, prøv igjen senere" : "";
+      toast(`Hentet: ${r.updated} ok · ${fails} feilet (${banks})${hint}. ${r.transactions || 0} nye transaksjoner.`);
+    } else {
+      toast(`Oppdatert ${r.updated} konto(er) · ${r.transactions || 0} transaksjoner`);
+    }
     await loadDashboard();
     openSettings("kontoer");
   } catch (e) {
@@ -1481,7 +1544,7 @@ Object.assign(window, {
   addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxPeriod, setTxLabel, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
-  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory,
+  dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory, loanTip, loanTipHide,
 });
 
 init();
