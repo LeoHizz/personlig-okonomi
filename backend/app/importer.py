@@ -193,7 +193,7 @@ def import_transactions(account_id: str, parsed: list[dict]) -> int:
         if existing and existing[0]["category_source"] == "manual":
             continue  # ikke overskriv manuell kategori
 
-        category = categorize.categorize(counterparty, remittance, amount)
+        category = categorize.categorize(counterparty, remittance, amount, account_id)
         db.upsert(
             "transactions",
             {

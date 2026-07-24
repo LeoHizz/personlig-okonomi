@@ -1381,9 +1381,13 @@ function loanRow(l = {}) {
 function ruleRow(r = {}) {
   const cats = (settingsCache.categories || []).concat(["Inntekt", "Overføring"]);
   const opts = cats.map((c) => `<option ${c === r.category ? "selected" : ""}>${esc(c)}</option>`).join("");
-  return `<div class="rule-row" style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
-    <div class="field" style="margin:0;flex:1"><label>Mønster (butikknavn/tekst)</label><input data-f="pattern" value="${esc(r.pattern || "")}"></div>
-    <div class="field" style="margin:0;width:150px"><label>Kategori</label><select data-f="category">${opts}</select></div>
+  const accts = (settingsCache.accounts || [])
+    .map((a) => `<option value="${jsq(a.id)}" ${r.account === a.id ? "selected" : ""}>${esc(a.name)}${a.bank_code ? " (" + esc(a.bank_code) + ")" : ""}</option>`)
+    .join("");
+  return `<div class="rule-row" style="display:flex;gap:8px;align-items:end;margin-bottom:8px;flex-wrap:wrap">
+    <div class="field" style="margin:0;flex:1;min-width:150px"><label>Mønster (butikknavn/tekst)</label><input data-f="pattern" value="${esc(r.pattern || "")}"></div>
+    <div class="field" style="margin:0;width:140px"><label>Kategori</label><select data-f="category">${opts}</select></div>
+    <div class="field" style="margin:0;width:150px"><label>Konto (valgfritt)</label><select data-f="account"><option value="">Alle kontoer</option>${accts}</select></div>
     <button class="row-del" onclick="this.closest('.rule-row').remove()" title="Fjern">✕</button>
   </div>`;
 }

@@ -237,7 +237,7 @@ def rebuild_from_raw(account_id: str | None = None) -> dict:
         if sig in keep_cat:
             category, source = keep_cat[sig], "manual"
         else:
-            category = categorize.categorize(t.get("counterparty", ""), remittance, amount)
+            category = categorize.categorize(t.get("counterparty", ""), remittance, amount, aid)
             source = "auto"
         records.append({
             "id": row["content_hash"],           # unik per arkivert transaksjon

@@ -31,7 +31,7 @@ manglende poster), og gi handlingsrettede råd der det er relevant.
 🔎 Avklares: hva sammenlignes mot (egen historikk / typiske andeler)? Hvor konservativ
 skal den være for å unngå «støy»/falske alarmer?
 
-### 3. Kategoriregler bør kunne betinges på konto 🆕
+### 3. Kategoriregler bør kunne betinges på konto ✅ FERDIG (Wave 2)
 _(2026-07-22)_
 Brukerreglene (Mønster → Kategori) matcher i dag kun på tekst/butikknavn. De bør
 kunne ta med hvilken konto transaksjonen faktisk gjelder som en faktor, slik at

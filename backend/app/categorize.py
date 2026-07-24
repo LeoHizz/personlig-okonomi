@@ -347,13 +347,15 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 ]
 
 
-def _rules() -> list[tuple[str, str]]:
-    """Kombiner brukerregler (fra DB) med standardreglene. Brukerregler først."""
+def _rules() -> list[tuple[str, str, str]]:
+    """Kombiner brukerregler (fra DB) med standardreglene. Brukerregler først.
+    Tredje felt = konto-id regelen er betinget av («» = gjelder alle kontoer)."""
     from . import db
 
     user = db.get_setting("category_rules", []) or []
-    custom = [(r["pattern"].lower(), r["category"]) for r in user if r.get("pattern")]
-    return custom + DEFAULT_RULES
+    custom = [(r["pattern"].lower(), r["category"], (r.get("account") or "").strip())
+              for r in user if r.get("pattern")]
+    return custom + [(p, c, "") for (p, c) in DEFAULT_RULES]
 
 
 def learn_rule(counterparty: str | None, category: str) -> None:
@@ -486,22 +488,27 @@ def apply_rules_to_existing() -> int:
     from . import db
 
     rows = db.query(
-        "SELECT id, counterparty, remittance, amount, category, category_source FROM transactions"
+        "SELECT id, account_id, counterparty, remittance, amount, category, category_source FROM transactions"
     )
     changed = 0
     for r in rows:
         if r["category_source"] == "manual":
             continue
-        newcat = categorize(r["counterparty"], r["remittance"], r["amount"])
+        newcat = categorize(r["counterparty"], r["remittance"], r["amount"], r["account_id"])
         if newcat != r["category"]:
             db.execute("UPDATE transactions SET category = ? WHERE id = ?", (newcat, r["id"]))
             changed += 1
     return changed
 
 
-def categorize(counterparty: str | None, remittance: str | None, amount: float) -> str:
+def categorize(counterparty: str | None, remittance: str | None, amount: float,
+               account_id: str | None = None) -> str:
     text = f"{counterparty or ''} {remittance or ''}".lower()
-    for pattern, category in _rules():
+    aid = (account_id or "")
+    for pattern, category, acct in _rules():
+        # Kontobetinget regel: gjelder kun transaksjoner på den kontoen.
+        if acct and acct != aid:
+            continue
         if pattern in text:
             # Positive beløp som traff en utgiftsregel er som regel refusjon/retur;
             # men hvis regelen selv er Inntekt/Overføring, behold den.
