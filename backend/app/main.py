@@ -307,9 +307,11 @@ def loan_history(pattern: str, persons: str | None = None):
 @app.get("/api/transactions")
 def transactions(month: str | None = None, persons: str | None = None,
                  category: str | None = None, q: str | None = None,
-                 period: str | None = None, label: str | None = None,
-                 flow: str | None = None):
-    return aggregate.build_transactions(month, persons, category, q, period, label, flow)
+                 label: str | None = None, flow: str | None = None,
+                 min_amount: float | None = None, max_amount: float | None = None,
+                 account: str | None = None):
+    return aggregate.build_transactions(month, persons, category, q, label, flow,
+                                        min_amount, max_amount, account)
 
 
 @app.get("/api/budget")

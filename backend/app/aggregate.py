@@ -687,20 +687,23 @@ def _range_transactions(month: str, period: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-_PERIOD_LABELS = {"month": "Denne måneden", "3m": "Siste 3 mnd", "12m": "Siste 12 mnd", "all": "Alt"}
-
-
 def build_transactions(month: str | None, persons, category: str | None,
-                       query: str | None, period: str | None = None,
-                       label: str | None = None, flow: str | None = None) -> dict:
+                       query: str | None, label: str | None = None, flow: str | None = None,
+                       min_amount: float | None = None, max_amount: float | None = None,
+                       account: str | None = None) -> dict:
     month = month or current_month()
     persons = _norm_persons(persons)
-    period = period if period in _PERIOD_LABELS else "month"
-    rows = _range_transactions(month, period)
     q = (query or "").lower().strip()
+    account = (account or "").strip()
+    # Skarpt filter aktivt (søk / beløp / konto) → søk på tvers av ALLE måneder.
+    # Ellers viser vi valgt måned (månedsnavigasjon som på forsiden).
+    cross_month = bool(q) or (min_amount is not None) or (max_amount is not None) or bool(account)
+    rows = _range_transactions(month, "all" if cross_month else "month")
     out = []
     for t in rows:
         if persons and (t["owner"] or "") not in persons:
+            continue
+        if account and t["account_id"] != account:
             continue
         if category and t["category"] != category:
             continue
@@ -710,6 +713,11 @@ def build_transactions(month: str | None, persons, category: str | None,
         if flow == "out" and not (t["amount"] < 0 and t["category"] != "Overføring"):
             continue
         if flow == "fixed" and not (t["amount"] < 0 and t["category"] in categorize.FIXED_CATEGORIES):
+            continue
+        mag = abs(t["amount"] or 0)
+        if min_amount is not None and mag < min_amount:
+            continue
+        if max_amount is not None and mag > max_amount:
             continue
         text = f"{t['counterparty']} {t['remittance']} {t['category']}".lower()
         if q and q not in text:
@@ -739,12 +747,17 @@ def build_transactions(month: str | None, persons, category: str | None,
                 "positive": amt > 0,
             }
         )
+    accts = [{"id": r["id"], "name": r["name"], "bank_code": r["bank_code"] or ""}
+             for r in db.query("SELECT id, name, bank_code FROM accounts WHERE hidden = 0 ORDER BY sort_order, name")]
+    total = sum(t["amount"] for t in out)
     return {"rows": out, "count": len(out), "persons": _persons_list(),
             "selectedPersons": persons,
             "categories": list(categorize.CATEGORY_ORDER) + ["Inntekt", "Overføring"],
             "allLabels": labelmod.all_labels(), "label": label or "Alle",
             "month": month, "monthLabel": _month_label(month),
-            "period": period, "periodLabel": _PERIOD_LABELS[period],
+            "crossMonth": cross_month, "accounts": accts,
+            "minAmount": min_amount, "maxAmount": max_amount, "account": account,
+            "sumFmt": ("+" if total >= 0 else "−") + _fmt(abs(total)),
             "flow": flow or ""}
 
 

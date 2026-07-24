@@ -104,7 +104,7 @@ Lag en visning (fane eller panel i Innstillinger → Kontoer, evt. egen «Aktivi
 🔎 Avklares: egen «Aktivitet»-fane vs. panel under Kontoer. Hvor mange forsøk vises
 (siste 30?). Relaterer til #5 (bank-helse-varsling) og den ærlige synk-rapporteringen.
 
-### 8. Transaksjonsvisning: månedsnavigasjon som forsiden + skarpere filtre 🆕
+### 8. Transaksjonsvisning: månedsnavigasjon som forsiden + skarpere filtre ✅ FERDIG (Wave 2)
 _(2026-07-22)_
 To ønsker for transaksjonslista:
 - **(a) Enklere tidsvalg:** fjern periode-velgeren (Måned / 3 mnd / 12 mnd / Alt).
