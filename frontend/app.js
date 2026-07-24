@@ -933,6 +933,12 @@ function goBudget() { state.view = "budget"; render(); }
 
 function goAnalyse() { state.view = "analyse"; renderAnalysis(); }
 function setAnalyseLabel(l) { state.label = l; renderAnalysis(); }
+function analyseMonth(delta) {
+  const ny = addMonth(state.month || currentYm(), delta);
+  if (ny > currentYm()) return; // ikke inn i framtiden
+  state.month = ny;
+  renderAnalysis();
+}
 
 async function renderAnalysis() {
   let a;
@@ -949,6 +955,7 @@ async function renderAnalysis() {
   }
 
   const chips = personChips(a.persons);
+  const atCurrentAn = (state.month || currentYm()) >= currentYm();
 
   const labelChips = (a.allLabels || []).length
     ? `<div class="chips" style="margin:2px 0 14px">${["Alle", ...a.allLabels]
@@ -1023,7 +1030,12 @@ async function renderAnalysis() {
       <div class="tx-head-left">
         <button class="chip-btn" onclick="goDash()">← Oversikt</button>
         <div class="tx-title">Analyse</div>
-        <div class="tx-count">${esc(a.monthLabel)} vs ${esc(a.prevMonthLabel)}</div>
+        <div class="month-nav">
+          <button class="mnav" onclick="analyseMonth(-1)" title="Forrige måned">‹</button>
+          <span>${esc(a.monthLabel)}</span>
+          <button class="mnav" onclick="analyseMonth(1)" title="Neste måned" ${atCurrentAn ? "disabled" : ""}>›</button>
+        </div>
+        <div class="tx-count">vs ${esc(a.prevMonthLabel)}</div>
       </div>
     </div>
     ${chips}
@@ -1750,7 +1762,7 @@ Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
   addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxLabel, setTxFlow, setTxAccount, setTxAmount, clearTxAmount, clearTxAccount, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
-  goBudget, goAnalyse, setAnalyseLabel, changeYear, suggestBudget, saveBudget, openImport, doImport,
+  goBudget, goAnalyse, setAnalyseLabel, analyseMonth, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory, loanTip, loanTipHide,
   loadInsight, saveAiKey, askAi,
 });
