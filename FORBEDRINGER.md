@@ -112,11 +112,9 @@ To ønsker for transaksjonslista:
 - **(b) Skarpere filtre:** kunne filtrere på f.eks. beløp over/under en sum, på konto
   (til/fra), retning, evt. datospenn. Det skal være **tydelig når et filter er aktivt**
   (aktiv-filter-chip med ✕ for å fjerne, slik kategori/flyt-filteret allerede gjør i dag).
-🔎 Avklares: (a) med kun én måned synlig mister man kryss-måneds-søk — skal søk/beløps-
-filter fortsatt kunne søke på tvers (f.eks. utvide til «alle» automatisk når et filter er
-aktivt), eller er måned-om-gangen godt nok? (b) hvilke filtre prioriteres (beløp / konto /
-retning)? Egen «filter»-knapp/panel vs. inline-chips. Bygger på eksisterende
-clearCatFilter/clearFlowFilter-mønster.
+**VALGT:** aktivt filter (beløp/søk) søker på tvers av ALLE måneder; ellers vises valgt
+måned. 🔎 Avklares (b): hvilke filtre først (beløp / konto / retning)? Egen «filter»-knapp
+vs. inline-chips. Bygger på eksisterende clearCatFilter/clearFlowFilter-mønster.
 
 ### 9. Konkrete rente/avdrag-tall: hover på lånegrafen + total-fordeling i Lån-kortet ✅ FERDIG (Wave 1)
 _(2026-07-22)_
