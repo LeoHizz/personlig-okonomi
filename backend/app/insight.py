@@ -127,11 +127,12 @@ def _build_payload(dash: dict) -> dict:
 def _call(system: str, user: str) -> str:
     """Kall Messages API rått via httpx (samme mønster som bank-integrasjonene –
     ingen ny tung avhengighet). Kaster ved feil; håndteres av `_run`."""
+    # Ikke send «thinking» – nyere modeller (Sonnet 5) avviser
+    # {"type":"disabled"} med 400. Utelates → modellens standard, alltid gyldig.
+    # Litt ekstra max_tokens så et evt. resonnement ikke spiser opp svaret.
     body = {
         "model": model(),
-        "max_tokens": 1024,
-        # Svaret er kort; slå av «thinking» for å holde token/kostnad nede.
-        "thinking": {"type": "disabled"},
+        "max_tokens": 1500,
         "system": system,
         "messages": [{"role": "user", "content": user}],
     }
