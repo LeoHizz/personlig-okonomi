@@ -1462,7 +1462,7 @@ function renderSettings(tab) {
       : '<div style="color:#9aa0aa;font-size:13px">Ingen kontoer koblet til enda.</div>');
     body += syncLogHtml(s);
   } else if (tab === "regler") {
-    body = `<div class="sub" style="margin-bottom:10px">Regler gjenkjennes automatisk framover. «Mønster» matcher tekst i transaksjonen (uten hensyn til store/små bokstaver). Du kan avgrense hver regel med <b>Treff</b> (inneholder / nøyaktig lik / starter med), <b>Retning</b> (kun inn eller ut), <b>Beløp</b> (over/under en grense) og <b>Konto</b>. Tomt felt = gjelder alle. Samme navn kan dermed gi ulik kategori inn vs. ut. <b>Første regel som matcher vinner</b> (rekkefølgen i lista), så legg de mest spesifikke øverst. Endrer du en kategori i transaksjonslista, lages en enkel regel her automatisk.</div>
+    body = `<div class="sub" style="margin-bottom:10px">Regler gjenkjennes automatisk framover. «Mønster» matcher tekst i transaksjonen (uten hensyn til store/små bokstaver). Du kan avgrense hver regel med <b>Treff</b> (inneholder / nøyaktig lik / starter med), <b>Retning</b> (kun inn eller ut) og <b>Konto</b>. Tomt felt = gjelder alle. Samme navn kan dermed gi ulik kategori inn vs. ut. <b>Første regel som matcher vinner</b> (rekkefølgen i lista), så legg de mest spesifikke øverst. Endrer du en kategori i transaksjonslista, lages en enkel regel her automatisk.</div>
       <div id="ruleRows">${(s.category_rules || []).map((r) => ruleRow(r)).join("")}</div>
       <button class="small-add" onclick="addRule()">+ Legg til regel</button>`;
   } else if (tab === "merkelapper") {
@@ -1570,8 +1570,6 @@ function ruleRow(r = {}) {
     <div class="field" style="margin:0;flex:1;min-width:150px"><label>Mønster (butikknavn/tekst)</label><input data-f="pattern" value="${esc(r.pattern || "")}"></div>
     <div class="field" style="margin:0"><label>Treff</label>${_sel("match", r.match, [["", "Inneholder"], ["exact", "Nøyaktig lik"], ["starts", "Starter med"]], 120)}</div>
     <div class="field" style="margin:0"><label>Retning</label>${_sel("direction", r.direction, [["", "Alle"], ["in", "Kun inn (+)"], ["out", "Kun ut (−)"]], 105)}</div>
-    <div class="field" style="margin:0"><label>Beløp</label>${_sel("amount_cmp", r.amount_cmp, [["", "Alle"], ["over", "Over"], ["under", "Under"]], 78)}</div>
-    <div class="field" style="margin:0;width:90px"><label>Grense (kr)</label><input data-f="amount_val" type="number" inputmode="decimal" placeholder="—" value="${r.amount_val ? esc(r.amount_val) : ""}"></div>
     <div class="field" style="margin:0;width:135px"><label>Konto</label>${_sel("account", r.account, acctOpts, 135)}</div>
     <div class="field" style="margin:0;width:135px"><label>Kategori</label><select data-f="category" style="width:135px">${opts}</select></div>
     <button class="row-del" onclick="this.closest('.rule-row').remove()" title="Fjern">✕</button>
