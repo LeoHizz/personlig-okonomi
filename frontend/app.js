@@ -1503,7 +1503,7 @@ function renderSettings(tab) {
   }
 
   $modal.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
-    <div class="modal">
+    <div class="modal${tab === "regler" ? " modal-wide" : ""}">
       <button class="modal-close" onclick="closeModal()">✕</button>
       <h2>Innstillinger</h2>
       <div class="sub">Verdier banken ikke gir (budsjett, bolig, lån) fyller du inn her.</div>
