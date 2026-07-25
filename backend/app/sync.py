@@ -162,7 +162,11 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         txs = gc.get_transactions(ref, date_from=date_from)
     except gc.Error as e:
         # Feil på bokførte transaksjoner logges (ikke svelges) – synk «lyver» ikke lenger.
-        rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, str(e))
+        # Ta med bankens RÅ svar (e.detail) så en 400 forteller HVA banken faktisk sa
+        # (manglende felt / ASPSP_ERROR / rate-limit), ikke bare vår generiske melding.
+        detail = getattr(e, "detail", None)
+        logged = f"{e} — {detail}" if detail else str(e)
+        rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, logged[:500])
         result["tx_error"] = str(e)
         result["tx_status"] = getattr(e, "status", None)
     else:

@@ -71,7 +71,7 @@ SYNC_MIN_INTERVAL_HOURS = int(os.getenv("SYNC_MIN_INTERVAL_HOURS", "6"))
 # Automatisk daglig synk (bakgrunnsjobb i appen). Sett AUTO_SYNC=0 for å skru av.
 AUTO_SYNC = os.getenv("AUTO_SYNC", "1").strip() not in ("0", "false", "no", "")
 # Klokketime (0–23, lokal servertid) for den daglige synken.
-AUTO_SYNC_HOUR = int(os.getenv("AUTO_SYNC_HOUR", "5"))
+AUTO_SYNC_HOUR = int(os.getenv("AUTO_SYNC_HOUR", "6"))
 
 # --- AI-analyse (valgfritt) ---
 # Settes ANTHROPIC_API_KEY, får dashboardet en KI-drevet analyse som flagger
