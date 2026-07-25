@@ -141,7 +141,16 @@ til #6 (eksakt splitt fra banktekst) og rente/avdrag-grafen som nettopp ble lagt
 
 ## Planlagt (neste runde)
 
-_(fylles når vi prioriterer)_
+### Kategoriregler – flere dimensjoner (rest) 🆕
+_(2026-07-25)_
+Regelmotoren fikk **retning** (inn/ut), **beløpsterskel** (over/under) og
+**match-type** (inneholder / nøyaktig / starter med) 25.07, i tillegg til
+konto (fra før). To forslag ble vurdert men **ikke** valgt denne runden:
+- **Match-felt:** velge om mønsteret matcher mot mottaker, melding, eller begge
+  (i dag: exact/starts sjekker feltene hver for seg, «inneholder» mot begge samlet).
+- **Rekkefølge/prioritet:** flytte regler opp/ned i UI (i dag avgjør lagrings-
+  rekkefølgen implisitt hvilken som vinner ved overlapp).
+Vurder ved neste regel-runde om disse trengs i praksis.
 
 ---
 

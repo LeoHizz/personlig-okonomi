@@ -34,7 +34,7 @@ CATEGORY_COLORS: dict[str, str] = {
 # Standard kategori-rekkefølge for visning (utgiftskategorier)
 # Økes hver gang reglene/kategoriene endres, slik at eksisterende (ikke-manuelle)
 # transaksjoner re-kategoriseres automatisk ved neste oppstart.
-RULES_VERSION = 9
+RULES_VERSION = 10
 
 # Positive innbetalinger under denne grensen er som regel refusjon/tilbakebetaling
 # (f.eks. Vipps fra venner for et utlegg), ikke ekte inntekt → føres som «Overføring»
@@ -352,14 +352,51 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 ]
 
 
-def _user_rules() -> list[tuple[str, str, str]]:
-    """Brukerregler (fra DB). Tredje felt = konto-id regelen er betinget av
-    («» = gjelder alle kontoer)."""
+def _rule_float(v) -> float | None:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f else None  # 0/tom = ingen terskel
+
+
+def _user_rules() -> list[dict]:
+    """Brukerregler (fra DB), normalisert. Alle betingelser er valgfrie – tomt
+    felt = «gjelder alle». Felt:
+      pattern   – tekst (delstreng/eksakt/starter med, avh. `match`)
+      category  – kategori regelen setter
+      account   – kun denne konto-id-en («» = alle)
+      direction – «in» (positivt), «out» (negativt), «» (begge)
+      amount_cmp/amount_val – «over»/«under» en beløpsgrense (på |beløp|)
+      match     – «exact», «starts», ellers «inneholder» (delstreng)."""
     from . import db
 
-    user = db.get_setting("category_rules", []) or []
-    return [(r["pattern"].lower(), r["category"], (r.get("account") or "").strip())
-            for r in user if r.get("pattern")]
+    out = []
+    for r in db.get_setting("category_rules", []) or []:
+        pat = (r.get("pattern") or "").strip().lower()
+        if not pat:
+            continue
+        out.append({
+            "pattern": pat,
+            "category": r.get("category"),
+            "account": (r.get("account") or "").strip(),
+            "direction": (r.get("direction") or "").strip(),
+            "amount_cmp": (r.get("amount_cmp") or "").strip(),
+            "amount_val": _rule_float(r.get("amount_val")),
+            "match": (r.get("match") or "").strip(),
+        })
+    return out
+
+
+def _text_match(pattern: str, match: str, counterparty: str, remittance: str, text: str) -> bool:
+    """Tekst-treff etter valgt match-type. «exact»/«starts» sjekkes mot mottaker
+    og melding hver for seg; «inneholder» (standard) mot begge samlet."""
+    if match == "exact":
+        return pattern in ((counterparty or "").strip().lower(), (remittance or "").strip().lower())
+    if match == "starts":
+        return (counterparty or "").strip().lower().startswith(pattern) \
+            or (remittance or "").strip().lower().startswith(pattern)
+    return pattern in text
 
 
 def learn_rule(counterparty: str | None, category: str) -> None:
@@ -509,12 +546,23 @@ def categorize(counterparty: str | None, remittance: str | None, amount: float,
                account_id: str | None = None) -> str:
     text = f"{counterparty or ''} {remittance or ''}".lower()
     aid = (account_id or "")
-    # 1) Brukerregler (eksplisitte valg) vinner – også kontobetingede.
-    for pattern, category, acct in _user_rules():
-        if acct and acct != aid:
+    # 1) Brukerregler (eksplisitte valg) vinner. Første regel som matcher ALLE
+    # sine betingelser (konto, retning, beløp, tekst) vinner – rekkefølgen i lista.
+    for r in _user_rules():
+        if r["account"] and r["account"] != aid:
             continue
-        if pattern in text:
-            return category
+        if r["direction"] == "in" and amount <= 0:
+            continue
+        if r["direction"] == "out" and amount >= 0:
+            continue
+        if r["amount_cmp"] and r["amount_val"]:
+            mag = abs(amount)
+            if r["amount_cmp"] == "over" and not mag > r["amount_val"]:
+                continue
+            if r["amount_cmp"] == "under" and not mag < r["amount_val"]:
+                continue
+        if _text_match(r["pattern"], r["match"], counterparty or "", remittance or "", text):
+            return r["category"]
     # 2) Små innbetalinger = trolig refusjon/tilbakebetaling → Overføring (ikke inntekt).
     if 0 < amount < SMALL_INCOME_LIMIT:
         return "Overføring"
