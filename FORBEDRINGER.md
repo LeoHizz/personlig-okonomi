@@ -137,7 +137,15 @@ Merk også: `pay_match` fanger alle overføringer TIL lånekontoen (også småbe
 brukskonto), som påvirker split-summene – vurder om kun terminbeløpet skal telle. Relaterer
 til #6 (eksakt splitt fra banktekst) og rente/avdrag-grafen som nettopp ble lagt inn.
 
----
+### 10. Fjerne «Netto formue» – gir lite verdi 🔎
+_(2026-07-25)_
+Frode tror ikke han ønsker «Netto formue» med; det gir egentlig ingenting.
+Til senere diskusjon: fjerne/nedtone KPI-en «Netto formue» på forsiden. Netto
+formue = tilkoblede kontoer + manuelle eiendeler − lån, så den avhenger av at
+man fyller inn eiendeler/lån manuelt – uten det er den lite meningsfull.
+🔎 Avklares: fjerne KPI-en helt, eller bare skjule den når det ikke finnes
+manuelle eiendeler/lån? Berører også `nettoFormue` i KI-spørrefeltets kontekst
+(kan tas ut der samtidig) og formue-relatert visning ellers.
 
 ## Planlagt (neste runde)
 
