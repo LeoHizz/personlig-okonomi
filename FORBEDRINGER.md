@@ -147,6 +147,29 @@ man fyller inn eiendeler/lån manuelt – uten det er den lite meningsfull.
 manuelle eiendeler/lån? Berører også `nettoFormue` i KI-spørrefeltets kontekst
 (kan tas ut der samtidig) og formue-relatert visning ellers.
 
+### 11. Gruppering/identitet må aldri henge på redigerbare etiketter 🆕
+_(2026-07-26)_
+Prinsipp (Frode): identitet skal sikres på noe garantert unikt – f.eks. kontonummer –
+ikke på hvordan kontoen tilfeldigvis er navngitt. To kontoer kan ende opp med samme
+navn/etikett.
+
+**Konkret funn 26.07:** feilsammendraget etter synk (`fail_banks`, to steder i
+`main.py`) grupperer på `accounts.bank_code`, som er den **brukerredigerbare**
+etiketten. Siden etikettene i praksis inneholder beskrivelser («SPV (Brukskonto)»,
+«SPV (Sparekonto)» …), telles hver konto som sin egen «bank»: toasten viser
+«SPV (Brukskonto): 1, SPV (Sparekonto): 1 …» i stedet for «SPV: 9». Uoversiktlig
+når mange feiler samtidig, og direkte feil hvis to kontoer får lik etikett.
+
+Allerede riktig i dag (ikke rør): `accounts.id` = `eb:`+kontonummer (stabil, unik),
+og `_bank_health()` grupperer på `institution_name` (bankens eget navn fra
+tilkoblingen).
+🔎 Avklares: bytte `fail_banks` til `institution_name`? Gå gjennom øvrige steder der
+`bank_code` brukes som mer enn visnings-etikett (aggregate.py bruker den flere
+steder som «acct»-visning – trolig greit). Vurder om etikett bør skilles fra
+kontobeskrivelse i UI-et, siden de nå blandes.
+
+---
+
 ## Planlagt (neste runde)
 
 ### Kategoriregler – flere dimensjoner (rest) 🆕
