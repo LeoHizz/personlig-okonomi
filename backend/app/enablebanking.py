@@ -56,8 +56,11 @@ def _jwt() -> str:
     return token
 
 
-def _headers() -> dict:
-    return {"Authorization": f"Bearer {_jwt()}", "Content-Type": "application/json"}
+def _headers(extra: dict | None = None) -> dict:
+    h = {"Authorization": f"Bearer {_jwt()}", "Content-Type": "application/json"}
+    if extra:
+        h.update(extra)
+    return h
 
 
 def _safe_json(resp: httpx.Response):
@@ -67,9 +70,9 @@ def _safe_json(resp: httpx.Response):
         return resp.text[:500]
 
 
-def _request(method: str, path: str, **kwargs) -> httpx.Response:
+def _request(method: str, path: str, extra_headers: dict | None = None, **kwargs) -> httpx.Response:
     url = f"{config.EB_BASE_URL}{path}"
-    return httpx.request(method, url, headers=_headers(), timeout=_TIMEOUT, **kwargs)
+    return httpx.request(method, url, headers=_headers(extra_headers), timeout=_TIMEOUT, **kwargs)
 
 
 def utc_now_iso() -> str:
@@ -184,8 +187,11 @@ _BALANCE_TYPE_MAP = {
 }
 
 
-def get_balances(account_id: str) -> list[dict]:
-    resp = _request("GET", f"/accounts/{account_id}/balances")
+def get_balances(account_id: str, psu_headers: dict | None = None) -> list[dict]:
+    """`psu_headers` (Psu-Ip-Address m.fl.) sendes KUN når en bruker faktisk
+    utløste hentingen – da vet banken at det er et betjent kall, og bakgrunns-
+    begrensninger (f.eks. 4 uttrekk/døgn) gjelder ikke. Bakgrunnssynk: None."""
+    resp = _request("GET", f"/accounts/{account_id}/balances", extra_headers=psu_headers)
     if resp.status_code == 429:
         raise ProviderError("Ratebegrensning nådd (saldo).", 429, _safe_json(resp))
     if resp.status_code != 200:
@@ -210,7 +216,8 @@ def get_balances(account_id: str) -> list[dict]:
 
 # --- transaksjoner ---
 
-def get_transactions(account_id: str, date_from: str | None = None) -> list[dict]:
+def get_transactions(account_id: str, date_from: str | None = None,
+                     psu_headers: dict | None = None) -> list[dict]:
     out: list[dict] = []
     for status_filter, status_norm in (("BOOK", "booked"), ("PDNG", "pending")):
         cont = None
@@ -221,7 +228,8 @@ def get_transactions(account_id: str, date_from: str | None = None) -> list[dict
                 params["date_from"] = date_from
             if cont:
                 params["continuation_key"] = cont
-            resp = _request("GET", f"/accounts/{account_id}/transactions", params=params)
+            resp = _request("GET", f"/accounts/{account_id}/transactions",
+                            params=params, extra_headers=psu_headers)
             if resp.status_code == 429:
                 raise ProviderError("Ratebegrensning nådd (transaksjoner).", 429, _safe_json(resp))
             if resp.status_code != 200:

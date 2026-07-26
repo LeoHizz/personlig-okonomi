@@ -32,8 +32,31 @@ def _seconds_until_hour(hour: int) -> float:
     return (nxt - now).total_seconds()
 
 
+def _psu_headers(request: Request) -> dict | None:
+    """PSU-kontekst for BRUKERUTLØSTE bank-kall (Enable Bankings anbefaling:
+    «hvis en bruker utløser hentingen, inkluder PSU-headers»). Da vet banken at
+    et menneske er til stede, og bakgrunnsbegrensninger gjelder ikke. Bakgrunns-
+    synk sender aldri disse. Bak revers-proxy: bruk første X-Forwarded-For."""
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else ""))
+    if not ip:
+        return None
+    h = {"Psu-Ip-Address": ip}
+    ua = request.headers.get("user-agent", "").strip()
+    if ua:
+        h["Psu-User-Agent"] = ua
+    return h
+
+
+# Retry-intervaller ved ASPSP_ERROR i auto-synk (Enable Bankings anbefaling:
+# økende intervall). Etter siste forsøk gir vi opp til neste dags synk.
+_RETRY_DELAYS = (60, 3600, 7200)  # ≈ 1 min, 1 t, 2 t → ferdig etter ~3 timer
+
+
 async def _auto_sync_loop() -> None:
-    """Kjører sync.sync_all() én gang i døgnet på fastsatt time."""
+    """Kjører sync.sync_all() én gang i døgnet på fastsatt time. Kontoer som
+    feiler med ASPSP_ERROR (forbigående bankfeil) prøves på nytt inntil
+    3 ganger med økende intervall; deretter venter vi til neste dag."""
     while True:
         await asyncio.sleep(_seconds_until_hour(config.AUTO_SYNC_HOUR))
         if not config.provider_configured():
@@ -42,7 +65,29 @@ async def _auto_sync_loop() -> None:
             continue  # aldri synk ekte bankdata inn i demo-basen
         try:
             res = await asyncio.to_thread(sync.sync_all)
-            log.info("Auto-synk fullført: %s konto(er)", len(res.get("synced", [])))
+            synced = res.get("synced", [])
+            log.info("Auto-synk fullført: %s konto(er)", len(synced))
+            failed = [r["account_id"] for r in synced if r.get("retryable")]
+            for attempt, delay in enumerate(_RETRY_DELAYS, start=1):
+                if not failed:
+                    break
+                log.info("Auto-synk: %s konto(er) feilet (ASPSP_ERROR) – nytt forsøk %s/%s om %s s",
+                         len(failed), attempt, len(_RETRY_DELAYS), delay)
+                await asyncio.sleep(delay)
+                still = []
+                for aid in failed:
+                    try:
+                        r = await asyncio.to_thread(sync.sync_account, aid, True)
+                        if r.get("retryable"):
+                            still.append(aid)
+                    except Exception:  # noqa: BLE001
+                        still.append(aid)
+                if len(still) < len(failed):
+                    db.set_setting("last_sync_at", gc.utc_now_iso())
+                failed = still
+            if failed:
+                log.warning("Auto-synk: %s konto(er) feilet fortsatt etter %s forsøk – gir opp til i morgen",
+                            len(failed), len(_RETRY_DELAYS))
         except Exception as e:  # noqa: BLE001 – jobben skal aldri kunne dø
             log.warning("Auto-synk feilet: %s", e)
 
@@ -425,7 +470,10 @@ def callback(request: Request):
         # skal ikke røre eksisterende kontoer (unngår at de mister saldo/data).
         for aid in ids:
             try:
-                sync.sync_account(aid, force=True)
+                # Brukeren kom nettopp fra BankID → betjent kall med PSU-headers,
+                # og deep=True: rett etter fersk SCA serverer banken full historikk
+                # (~1 times vindu) – det ENESTE gode øyeblikket for dyp backfill.
+                sync.sync_account(aid, force=True, psu_headers=_psu_headers(request), deep=True)
             except gc.Error:
                 pass
         return RedirectResponse(url="/?connect=ok")
@@ -433,9 +481,10 @@ def callback(request: Request):
 
 
 @app.post("/api/sync")
-def do_sync(force: bool = False):
+def do_sync(request: Request, force: bool = False):
     try:
-        res = sync.sync_all(force=force)
+        # Brukeren trykket selv → PSU-headers (betjent kall; bakgrunnskvoter gjelder ikke).
+        res = sync.sync_all(force=force, psu_headers=_psu_headers(request))
     except gc.Error as e:
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
     # Ærlig oppsummering så knappen ikke viser «0 transaksjoner» som om alt gikk bra
@@ -627,13 +676,13 @@ def _refresh_details(account_id: str, provider_ref: str, cur_name: str) -> dict:
 
 
 @app.post("/api/accounts/{account_id}/refresh")
-def refresh_account(account_id: str):
+def refresh_account(account_id: str, request: Request):
     """Hent alt på nytt fra banken: navn/IBAN, saldo OG nye transaksjoner."""
     row = db.query("SELECT name, provider_ref FROM accounts WHERE id = ?", (account_id,))
     ref = row[0]["provider_ref"] if row and row[0]["provider_ref"] else account_id
     try:
         d = _refresh_details(account_id, ref, row[0]["name"] if row else "")
-        res = sync.sync_account(account_id, force=True)
+        res = sync.sync_account(account_id, force=True, psu_headers=_psu_headers(request))
     except gc.Error as e:
         return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
     return {
@@ -646,8 +695,9 @@ def refresh_account(account_id: str):
 
 
 @app.post("/api/accounts-refresh-all")
-def refresh_all_accounts():
+def refresh_all_accounts(request: Request):
     """Hent saldo + transaksjoner (og navn/IBAN) for alle tilkoblede kontoer."""
+    psu = _psu_headers(request)
     rows = db.query(
         "SELECT id, name, provider_ref FROM accounts WHERE institution_id NOT IN ('csv-import','demo') AND hidden = 0"
     )
@@ -658,7 +708,7 @@ def refresh_all_accounts():
         except Exception:  # noqa: BLE001
             pass  # navn/IBAN er «best effort» – la synken avgjøre feil
         try:
-            results.append(sync.sync_account(r["id"], force=True))
+            results.append(sync.sync_account(r["id"], force=True, psu_headers=psu))
         except gc.Error as e:
             results.append({"account_id": r["id"], "error": str(e), "status": getattr(e, "status", None)})
     # Ærlig telling: sync_account reiser IKKE unntak på tx-feil (den returnerer tx_error),

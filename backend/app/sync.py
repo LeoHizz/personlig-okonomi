@@ -136,7 +136,8 @@ def register_accounts(query: dict) -> list[str]:
     return ids
 
 
-def sync_account(account_id: str, force: bool = False) -> dict:
+def sync_account(account_id: str, force: bool = False,
+                 psu_headers: dict | None = None, deep: bool = False) -> dict:
     row = db.query("SELECT last_synced, provider_ref FROM accounts WHERE id = ?", (account_id,))
     # Bankens økt-ID for selve API-kallene; kontoen (account_id) er stabil.
     ref = (row[0]["provider_ref"] if row and row[0]["provider_ref"] else account_id)
@@ -152,14 +153,33 @@ def sync_account(account_id: str, force: bool = False) -> dict:
 
     result = {"account_id": account_id, "transactions": 0, "skipped": False}
     try:
-        _save_balances(account_id, gc.get_balances(ref))
+        _save_balances(account_id, gc.get_balances(ref, psu_headers=psu_headers))
     except gc.Error as e:
         result["balance_error"] = str(e)
 
-    date_from = (datetime.now(timezone.utc) - timedelta(days=config.HISTORY_DAYS)).date().isoformat()
+    # Kort vindu på oppfølgings-synk (Enable Bankings anbefaling): full historikk
+    # serveres typisk bare rett etter fersk BankID; senere gir mange banker kun
+    # ~90 dager. Arkivet har alt fra før – vi trenger bare ferske dager.
+    # HULL-VERN: vinduet strekkes alltid tilbake til siste arkiverte transaksjon
+    # (+3 dagers overlapp), så en konto som har stått uten synk lenge (utløpt
+    # samtykke, langvarig bankfeil) ikke mister mellomperioden. Første uttrekk
+    # (tomt arkiv) og deep=True (rett etter fersk BankID) bruker full historikk.
+    last = db.query(
+        "SELECT MAX(booking_date) AS bd FROM raw_transactions WHERE account_id = ?",
+        (account_id,))
+    last_bd = (last[0]["bd"] or "") if last else ""
+    if deep or not last_bd:
+        days = config.HISTORY_DAYS
+    else:
+        try:
+            gap = (datetime.now(timezone.utc).date() - datetime.fromisoformat(last_bd[:10]).date()).days + 3
+        except ValueError:
+            gap = config.HISTORY_DAYS
+        days = min(config.HISTORY_DAYS, max(config.SYNC_RECENT_DAYS, gap))
+    date_from = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     now = gc.utc_now_iso()
     try:
-        txs = gc.get_transactions(ref, date_from=date_from)
+        txs = gc.get_transactions(ref, date_from=date_from, psu_headers=psu_headers)
     except gc.Error as e:
         # Feil på bokførte transaksjoner logges (ikke svelges) – synk «lyver» ikke lenger.
         # Ta med bankens RÅ svar (e.detail) så en 400 forteller HVA banken faktisk sa
@@ -169,6 +189,10 @@ def sync_account(account_id: str, force: bool = False) -> dict:
         rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, logged[:500])
         result["tx_error"] = str(e)
         result["tx_status"] = getattr(e, "status", None)
+        # ASPSP_ERROR = Enable Bankings «uklassifisert feil hos banken» (vedlikehold/
+        # bug). Deres anbefaling er nye forsøk med økende intervall – flagg for
+        # auto-synkens retry-runde. Rate-limit (429) skal ALDRI retryes.
+        result["retryable"] = "ASPSP_ERROR" in str(detail or "")
     else:
         # 1) KILDE: arkiver ALT banken ga oss, urørt, med bokført/ventende-status.
         raw_objs = [t.get("raw", t) for t in txs]
@@ -185,12 +209,12 @@ def sync_account(account_id: str, force: bool = False) -> dict:
     return result
 
 
-def sync_all(force: bool = False) -> dict:
+def sync_all(force: bool = False, psu_headers: dict | None = None) -> dict:
     accounts = db.query("SELECT id FROM accounts WHERE hidden = 0 AND institution_id != 'csv-import'")
     results = []
     for a in accounts:
         try:
-            results.append(sync_account(a["id"], force=force))
+            results.append(sync_account(a["id"], force=force, psu_headers=psu_headers))
         except gc.Error as e:
             results.append({"account_id": a["id"], "error": str(e), "status": getattr(e, "status", None)})
     # Stemple «sist synket» kun hvis minst én konto faktisk lyktes – ikke lyv om

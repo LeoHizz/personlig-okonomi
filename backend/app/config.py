@@ -45,9 +45,13 @@ COUNTRY = os.getenv("COUNTRY", "no").strip().lower()
 # Hvor mange dager transaksjonshistorikk vi ber om ved ny tilkobling (maks 730,
 # men de fleste norske banker gir 90).
 ACCESS_DAYS = int(os.getenv("ACCESS_DAYS", "90"))
-# Hvor langt tilbake vi ber banken om transaksjoner (banken gir det den har –
-# ofte mest rett etter fersk BankID-innlogging). Standard: ~2 år.
+# Hvor langt tilbake vi ber banken om transaksjoner VED FØRSTE uttrekk for en
+# konto (banken gir det den har – mest rett etter fersk BankID-innlogging).
 HISTORY_DAYS = int(os.getenv("HISTORY_DAYS", "730"))
+# Vindu for OPPFØLGINGS-synk når kontoen allerede har arkivdata. Enable Banking
+# anbefaler å begrense date_from etter førstegangs-uttrekk: mange banker serverer
+# kun ~90 dager uten fersk SCA, og lange ubetjente forespørsler er unødig tunge.
+SYNC_RECENT_DAYS = int(os.getenv("SYNC_RECENT_DAYS", "30"))
 
 # Offentlig URL appen nås på — brukes som redirect etter bankinnlogging.
 # F.eks. http://192.168.1.50:8080 eller https://okonomi.hjemme.no

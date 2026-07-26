@@ -219,7 +219,8 @@ _BALANCE_TYPE_MAP = {
 }
 
 
-def get_balances(account_id: str) -> list[dict]:
+def get_balances(account_id: str, psu_headers: dict | None = None) -> list[dict]:
+    # psu_headers: kun relevant for Enable Banking; aksepteres for felles grensesnitt.
     resp = _request("GET", f"/accounts/{account_id}/balances/")
     if resp.status_code == 429:
         raise GoCardlessError("Ratebegrensning nådd (saldo).", 429, _safe_json(resp))
@@ -243,7 +244,9 @@ def get_balances(account_id: str) -> list[dict]:
     return out
 
 
-def get_transactions(account_id: str, date_from: str | None = None) -> list[dict]:
+def get_transactions(account_id: str, date_from: str | None = None,
+                     psu_headers: dict | None = None) -> list[dict]:
+    # psu_headers: kun relevant for Enable Banking; aksepteres for felles grensesnitt.
     path = f"/accounts/{account_id}/transactions/"
     if date_from:
         path += f"?date_from={date_from}"
