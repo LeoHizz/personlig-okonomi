@@ -195,7 +195,11 @@ def get_balances(account_id: str, psu_headers: dict | None = None) -> list[dict]
     if resp.status_code == 429:
         raise ProviderError("Ratebegrensning nådd (saldo).", 429, _safe_json(resp))
     if resp.status_code != 200:
-        return []
+        # IKKE svelg feilen (jf. «ikke svelg feil» i CLAUDE.md): et 400 her forsvant
+        # tidligere som «tom liste», så vi kunne ikke se om banken avviste HELE
+        # forbindelsen eller bare transaksjons-endepunktet. Saldo skrives ikke over
+        # ved feil (kalleren får unntak før _save_balances kjører).
+        raise ProviderError("Kunne ikke hente saldo.", resp.status_code, _safe_json(resp))
     out = []
     for b in resp.json().get("balances", []) or []:
         amt = b.get("balance_amount", {}) or {}

@@ -152,10 +152,16 @@ def sync_account(account_id: str, force: bool = False,
             pass
 
     result = {"account_id": account_id, "transactions": 0, "skipped": False}
+    # DIAGNOSE: saldo-utfallet logges sammen med transaksjons-utfallet. Feiler BEGGE,
+    # avviser banken hele forbindelsen (f.eks. ubetjent tilgang); går saldo mens
+    # transaksjoner feiler, ligger problemet i transaksjons-endepunktet alene.
+    bal_note = ""
     try:
         _save_balances(account_id, gc.get_balances(ref, psu_headers=psu_headers))
     except gc.Error as e:
         result["balance_error"] = str(e)
+        result["balance_status"] = getattr(e, "status", None)
+        bal_note = f"[saldo: FEIL {getattr(e, 'status', '?')}] "
 
     # Kort vindu på oppfølgings-synk (Enable Bankings anbefaling): full historikk
     # serveres typisk bare rett etter fersk BankID; senere gir mange banker kun
@@ -185,7 +191,7 @@ def sync_account(account_id: str, force: bool = False,
         # Ta med bankens RÅ svar (e.detail) så en 400 forteller HVA banken faktisk sa
         # (manglende felt / ASPSP_ERROR / rate-limit), ikke bare vår generiske melding.
         detail = getattr(e, "detail", None)
-        logged = f"{e} — {detail}" if detail else str(e)
+        logged = bal_note + (f"{e} — {detail}" if detail else str(e))
         rawstore.record_run(account_id, "error", now, getattr(e, "status", None), 0, logged[:500])
         result["tx_error"] = str(e)
         result["tx_status"] = getattr(e, "status", None)
@@ -198,7 +204,8 @@ def sync_account(account_id: str, force: bool = False,
         raw_objs = [t.get("raw", t) for t in txs]
         statuses = [t.get("status") for t in txs]
         result["raw_new"] = rawstore.archive(account_id, raw_objs, config.PROVIDER, now, statuses)
-        rawstore.record_run(account_id, "ok", now, 200, len(raw_objs))
+        # bal_note settes kun når saldo feilet – da synes det selv om transaksjonene gikk.
+        rawstore.record_run(account_id, "ok", now, 200, len(raw_objs), bal_note or None)
         # 2) AVLEDET: speil kontoen fra arkivet. Én id-vei (content_hash) → aldri kollisjon
         # selv når banken gjenbruker entry_reference. Ventende ekskluderes, lån=overføring
         # markeres. Ventende skifter dato/beløp/ref når de bokføres → holdes utenfor.

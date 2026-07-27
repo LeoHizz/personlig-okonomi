@@ -225,7 +225,8 @@ def get_balances(account_id: str, psu_headers: dict | None = None) -> list[dict]
     if resp.status_code == 429:
         raise GoCardlessError("Ratebegrensning nådd (saldo).", 429, _safe_json(resp))
     if resp.status_code != 200:
-        return []
+        # Ikke svelg feilen – samme prinsipp som i enablebanking.get_balances.
+        raise GoCardlessError("Kunne ikke hente saldo.", resp.status_code, _safe_json(resp))
     out = []
     for b in resp.json().get("balances", []) or []:
         amt = b.get("balanceAmount", {}) or {}
