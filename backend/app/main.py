@@ -53,12 +53,36 @@ def _psu_headers(request: Request) -> dict | None:
 _RETRY_DELAYS = (60, 3600, 7200)  # ≈ 1 min, 1 t, 2 t → ferdig etter ~3 timer
 
 
+# Sterke referanser til bakgrunnsoppgaver. asyncio.create_task() holder KUN en svak
+# referanse – uten dette kan planleggeren bli søppelryddet og dø stille.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro, name: str) -> None:
+    task = asyncio.create_task(coro, name=name)
+    _bg_tasks.add(task)
+
+    def _done(t: asyncio.Task) -> None:
+        _bg_tasks.discard(t)
+        if t.cancelled():
+            log.warning("Bakgrunnsjobb «%s» ble avbrutt", name)
+        elif t.exception() is not None:
+            log.error("Bakgrunnsjobb «%s» DØDE: %r", name, t.exception())
+
+    task.add_done_callback(_done)
+
+
 async def _auto_sync_loop() -> None:
     """Kjører sync.sync_all() én gang i døgnet på fastsatt time. Kontoer som
     feiler med ASPSP_ERROR (forbigående bankfeil) prøves på nytt inntil
     3 ganger med økende intervall; deretter venter vi til neste dag."""
     while True:
-        await asyncio.sleep(_seconds_until_hour(config.AUTO_SYNC_HOUR))
+        secs = _seconds_until_hour(config.AUTO_SYNC_HOUR)
+        # Synlig kvittering på at planleggeren LEVER, og når den fyrer. Uten dette
+        # er «kjørte den i det hele tatt?» umulig å svare på uten å vente et døgn.
+        log.info("Auto-synk: neste kjøring kl. %02d:00 – om %.0f min",
+                 config.AUTO_SYNC_HOUR % 24, secs / 60)
+        await asyncio.sleep(secs)
         if not config.provider_configured():
             continue
         if db.is_demo():
@@ -264,8 +288,16 @@ async def _startup() -> None:
         log.warning("APP_PASSWORD er IKKE satt – appen kjører uten tilgangsbeskyttelse "
                     "(alle endepunkter åpne, inkl. sletting). Sett APP_PASSWORD i .env før "
                     "du eksponerer appen utenfor hjemmenettet (se REMOTE_ACCESS.md).")
+    # Våre logglinjer må faktisk nå journalen – uvicorn eier handlerne.
+    _u = logging.getLogger("uvicorn.error")
+    if _u.handlers:
+        log.handlers = _u.handlers
+        log.propagate = False
+    log.setLevel(logging.INFO)
     if config.AUTO_SYNC:
-        asyncio.create_task(_auto_sync_loop())
+        _spawn_bg(_auto_sync_loop(), "auto-synk")
+    else:
+        log.info("Auto-synk er AVSLÅTT (AUTO_SYNC=0)")
 
 
 # --- valgfri enkel tilgangsbeskyttelse (HTTP Basic) ---
