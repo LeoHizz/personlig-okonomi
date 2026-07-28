@@ -53,6 +53,22 @@ def _psu_headers(request: Request) -> dict | None:
 _RETRY_DELAYS = (60, 3600, 7200)  # ≈ 1 min, 1 t, 2 t → ferdig etter ~3 timer
 
 
+def _wire_logging() -> None:
+    """Gi vår egen logger en handler.
+
+    Uten handler bruker Python `logging.lastResort`, som slipper gjennom WARNING
+    og oppover men KASTER alt under – derfor kom «APP_PASSWORD er ikke satt» fram
+    mens INFO-linjene forsvant sporløst. Vi kan ikke låne uvicorns handler heller:
+    den ligger på «uvicorn»-loggeren, ikke på «uvicorn.error» (som bare propagerer).
+    Egen StreamHandler → stderr → journald, uavhengig av uvicorns interne oppsett."""
+    if not log.handlers:
+        h = logging.StreamHandler()
+        h.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+        log.addHandler(h)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+
+
 # Sterke referanser til bakgrunnsoppgaver. asyncio.create_task() holder KUN en svak
 # referanse – uten dette kan planleggeren bli søppelryddet og dø stille.
 _bg_tasks: set[asyncio.Task] = set()
@@ -288,12 +304,7 @@ async def _startup() -> None:
         log.warning("APP_PASSWORD er IKKE satt – appen kjører uten tilgangsbeskyttelse "
                     "(alle endepunkter åpne, inkl. sletting). Sett APP_PASSWORD i .env før "
                     "du eksponerer appen utenfor hjemmenettet (se REMOTE_ACCESS.md).")
-    # Våre logglinjer må faktisk nå journalen – uvicorn eier handlerne.
-    _u = logging.getLogger("uvicorn.error")
-    if _u.handlers:
-        log.handlers = _u.handlers
-        log.propagate = False
-    log.setLevel(logging.INFO)
+    _wire_logging()
     if config.AUTO_SYNC:
         _spawn_bg(_auto_sync_loop(), "auto-synk")
     else:
