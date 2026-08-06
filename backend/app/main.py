@@ -526,33 +526,6 @@ def callback(request: Request):
     return RedirectResponse(url="/?connect=pending")
 
 
-@app.post("/api/sync")
-def do_sync(request: Request, force: bool = False):
-    try:
-        # Brukeren trykket selv → PSU-headers (betjent kall; bakgrunnskvoter gjelder ikke).
-        res = sync.sync_all(force=force, psu_headers=_psu_headers(request))
-    except gc.Error as e:
-        return JSONResponse({"error": str(e), "detail": e.detail}, status_code=e.status or 500)
-    # Ærlig oppsummering så knappen ikke viser «0 transaksjoner» som om alt gikk bra
-    # når kontoer faktisk feilet (samtykke utløpt / ratebegrensning).
-    synced = res.get("synced", [])
-    fails = [r for r in synced if r.get("tx_error") or r.get("error")]
-    res["ok_count"] = len(synced) - len(fails)
-    res["fail_count"] = len(fails)
-    res["tx_total"] = sum((r.get("transactions") or 0) for r in synced)
-    statuses = [(r.get("tx_status") or r.get("status")) for r in fails]
-    res["rate_limited"] = 429 in statuses
-    res["needs_reauth"] = any(s in (400, 401, 403) for s in statuses)
-    fail_ids = [r["account_id"] for r in fails]
-    if fail_ids:
-        ph = ",".join("?" for _ in fail_ids)
-        res["fail_banks"] = {(r["bank_code"] or "?"): r["n"] for r in db.query(
-            f"SELECT bank_code, COUNT(*) AS n FROM accounts WHERE id IN ({ph}) GROUP BY bank_code", fail_ids)}
-    else:
-        res["fail_banks"] = {}
-    return res
-
-
 # --- likviditet-historikk (manuelle øyeblikksbilder brukeren kjenner) ---
 
 @app.post("/api/liquidity-snapshot")

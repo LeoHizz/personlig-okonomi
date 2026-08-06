@@ -68,12 +68,22 @@ APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
 # Hemmelig nøkkel for signering (settes i .env i produksjon).
 SECRET_KEY = os.getenv("SECRET_KEY", "endre-meg-i-produksjon").strip()
 
-# Minimum tid mellom automatiske synkroniseringer per konto (timer).
-# GoCardless gratisnivå tillater ~4 uttrekk per konto per døgn.
+# --- Sperrer mot å bombe banken med forespørsler ---
+# Etter en VELLYKKET synk: hvor lenge en konto regnes som fersk nok (timer).
 SYNC_MIN_INTERVAL_HOURS = int(os.getenv("SYNC_MIN_INTERVAL_HOURS", "6"))
+# Etter en MISLYKKET synk: kortere sperre, ellers ville én feil låst kontoen ute
+# i timevis – nettopp når vi trenger et nytt forsøk (minutter).
+SYNC_RETRY_MIN_MINUTES = int(os.getenv("SYNC_RETRY_MIN_MINUTES", "15"))
+# Gulv for BRUKERUTLØSTE uttrekk («Hent fra bank»): hindrer at gjentatte klikk
+# sender én forespørsel per klikk (sekunder).
+SYNC_FORCE_MIN_SECONDS = int(os.getenv("SYNC_FORCE_MIN_SECONDS", "60"))
 
-# Automatisk daglig synk (bakgrunnsjobb i appen). Sett AUTO_SYNC=0 for å skru av.
-AUTO_SYNC = os.getenv("AUTO_SYNC", "1").strip() not in ("0", "false", "no", "")
+# Nattlig bakgrunnssynk. AV som standard: den er UBETJENT, og flere norske banker
+# (bl.a. Sparebanken Vest/Norge) avviser ubetjente transaksjonsuttrekk med
+# ASPSP_ERROR – målt over flere døgn. Data hentes i stedet når du åpner appen
+# (SYNC_ON_OPEN), som er et betjent uttrekk bankene godtar. Sett AUTO_SYNC=1
+# hvis alle bankene dine tåler ubetjent henting.
+AUTO_SYNC = _bool("AUTO_SYNC", False)
 # Klokketime (0–23, lokal servertid) for den daglige synken.
 AUTO_SYNC_HOUR = int(os.getenv("AUTO_SYNC_HOUR", "6"))
 

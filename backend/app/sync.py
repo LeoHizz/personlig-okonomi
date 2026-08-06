@@ -136,20 +136,48 @@ def register_accounts(query: dict) -> list[str]:
     return ids
 
 
+def _last_run_ok(account_id: str) -> bool:
+    """Gikk forrige synk-forsøk bra? Styrer hvor lenge kontoen er «sperret»."""
+    r = db.query(
+        "SELECT status FROM sync_runs WHERE account_id = ? ORDER BY id DESC LIMIT 1",
+        (account_id,))
+    return bool(r) and r[0]["status"] == "ok"
+
+
+def _too_soon(account_id: str, last_synced: str | None, force: bool) -> str | None:
+    """Felles sperre mot å bombe banken. Returnerer en grunn hvis kontoen ble
+    hentet for nylig, ellers None. Gjelder ALLE veier inn (synk ved åpning,
+    «Hent fra bank», nattjobb), så ingen kan omgå den.
+
+    Tre nivåer:
+      • brukerutløst (force)  – kort gulv, så gjentatte klikk ikke gir ett kall hver
+      • forrige forsøk FEILET – kort sperre, ellers låser én feil kontoen ute i timevis
+      • forrige forsøk OK     – full sperre; dataene er ferske nok
+    NB: `last_synced` stemples også ved feil, derfor må vi sjekke sync_runs."""
+    if not last_synced:
+        return None
+    try:
+        t = datetime.fromisoformat(last_synced)
+    except ValueError:
+        return None          # ubrukelig tidsstempel – ikke la det blokkere synk
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - t
+    if force:
+        return "nettopp hentet" if age < timedelta(seconds=config.SYNC_FORCE_MIN_SECONDS) else None
+    if not _last_run_ok(account_id):
+        return "nylig forsøkt" if age < timedelta(minutes=config.SYNC_RETRY_MIN_MINUTES) else None
+    return "nylig synket" if age < timedelta(hours=config.SYNC_MIN_INTERVAL_HOURS) else None
+
+
 def sync_account(account_id: str, force: bool = False,
                  psu_headers: dict | None = None, deep: bool = False) -> dict:
     row = db.query("SELECT last_synced, provider_ref FROM accounts WHERE id = ?", (account_id,))
     # Bankens økt-ID for selve API-kallene; kontoen (account_id) er stabil.
     ref = (row[0]["provider_ref"] if row and row[0]["provider_ref"] else account_id)
-    if row and row[0]["last_synced"] and not force:
-        try:
-            last_dt = datetime.fromisoformat(row[0]["last_synced"])
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - last_dt < timedelta(hours=config.SYNC_MIN_INTERVAL_HOURS):
-                return {"account_id": account_id, "skipped": True, "reason": "nylig synket"}
-        except ValueError:
-            pass
+    reason = _too_soon(account_id, row[0]["last_synced"] if row else None, force)
+    if reason:
+        return {"account_id": account_id, "skipped": True, "reason": reason}
 
     result = {"account_id": account_id, "transactions": 0, "skipped": False}
     # DIAGNOSE: saldo-utfallet logges sammen med transaksjons-utfallet. Feiler BEGGE,

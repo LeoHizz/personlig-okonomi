@@ -1340,33 +1340,6 @@ async function changeTxCategory(id, cat) {
   }
 }
 
-async function syncNow() {
-  const btn = document.getElementById("syncBtn");
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Synker…'; }
-  try {
-    const res = await api.post("/api/sync?force=true", {});
-    const n = res.tx_total ?? (res.synced || []).reduce((s, x) => s + (x.transactions || 0), 0);
-    const fails = res.fail_count || 0;
-    if (fails > 0) {
-      const banks = Object.entries(res.fail_banks || {}).map(([b, c]) => `${b}: ${c}`).join(", ");
-      const hint = res.needs_reauth
-        ? " — re-autoriser banken (samtykke utløpt?)"
-        : res.rate_limited
-          ? " — ratebegrensning nådd, prøv igjen senere"
-          : " — sjekk bank-tilkobling";
-      toast(`Synk: ${res.ok_count} ok · ${fails} feilet (${banks})${hint}. ${n} nye transaksjoner.`);
-    } else {
-      toast(`Synkronisert · ${n} transaksjoner oppdatert`);
-    }
-    state.status = await api.get("/api/status");
-    await loadDashboard();
-  } catch (e) {
-    toast("Synk feilet: " + (e.error || "ukjent feil"));
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = "↻ Synk"; }
-  }
-}
-
 /* ---------- connect modal ---------- */
 
 async function openConnect() {
@@ -1795,7 +1768,7 @@ function monthShort(label) {
 // eksponer funksjoner brukt i inline onclick
 Object.assign(window, {
   openConnect, connectBank, openSettings, renderSettings, saveSettings,
-  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, syncNow, selectCat, goTx, goTxForCat, goDash,
+  addAsset, addLoan, toggleLoanAuto, addRule, addLabelRule, addCustomLabel, addLiqPoint, delLiqPoint, closeModal, selectCat, goTx, goTxForCat, goDash,
   setPerson, setTxLabel, setTxFlow, setTxAccount, setTxAmount, clearTxAmount, clearTxAccount, addTxLabel, removeTxLabel, setDashPerson, clearCatFilter, clearFlowFilter, goTxFlow, txMonth, onQuery, changeTxCategory,
   goBudget, goAnalyse, setAnalyseLabel, analyseMonth, changeYear, suggestBudget, saveBudget, openImport, doImport,
   dashMonth, toggleDemo, refreshAccount, refreshAllAccounts, dedupeAccounts, resetBankAccounts, openMerchant, openLoanHistory, loanTip, loanTipHide,
