@@ -370,6 +370,24 @@ def ai_insight(month: str | None = None, persons: str | None = None,
     return insight.generate(month, persons, force=force)
 
 
+@app.post("/api/sync-on-open")
+async def sync_on_open(request: Request):
+    """Lett synk utløst av at brukeren åpnet appen.
+
+    Dette er et EKTE betjent uttrekk – brukeren sitter foran skjermen – så
+    PSU-headerne er sanne her, i motsetning til nattjobben. Nettopp derfor virker
+    dette mot banker som avviser ubetjente transaksjonsuttrekk (SPV). Kjøres i
+    bakgrunnen så siden ikke henger, og kontoer synket for under
+    SYNC_MIN_INTERVAL_HOURS siden hoppes over av sync_account (ingen bank-kall)."""
+    if not (config.SYNC_ON_OPEN and config.provider_configured()) or db.is_demo():
+        return {"started": False, "reason": "av"}
+    if any(t.get_name() == "synk-ved-åpning" and not t.done() for t in _bg_tasks):
+        return {"started": False, "reason": "pågår"}
+    psu = _psu_headers(request)
+    _spawn_bg(asyncio.to_thread(sync.sync_all, False, psu), "synk-ved-åpning")
+    return {"started": True}
+
+
 @app.post("/api/ask")
 async def ai_ask(request: Request):
     """Fritekst-spørsmål til KI-en om egen økonomi. Kun aggregerte tall sendes

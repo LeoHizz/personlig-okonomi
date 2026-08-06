@@ -88,6 +88,13 @@ AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-5").strip()
 ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
 
 
+# Lett synk når du ÅPNER appen. Dette er et ekte betjent uttrekk (du er til stede),
+# så bankene behandler det som brukerutløst – i motsetning til nattjobben, som
+# noen banker (SPV/Sparebanken Norge) avviser for transaksjoner. Kontoer som ble
+# synket for under SYNC_MIN_INTERVAL_HOURS siden hoppes over, så det maser ikke.
+SYNC_ON_OPEN = _bool("SYNC_ON_OPEN", True)
+
+
 def ai_configured() -> bool:
     return bool(ANTHROPIC_API_KEY)
 

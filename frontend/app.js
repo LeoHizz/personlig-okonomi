@@ -102,6 +102,36 @@ async function init() {
   if (!state.month) state.month = prevYm();
   await loadDashboard();
   handleConnectReturn();
+  syncOnOpen();   // ikke await – skal aldri forsinke visningen
+}
+
+// Lett synk fordi DU nettopp åpnet appen. Dette er et betjent uttrekk, som er
+// grunnen til at det virker mot banker som avviser nattjobbens ubetjente kall.
+// Kontoer synket nylig hoppes over i backend, så dette maser ikke på bankene.
+async function syncOnOpen() {
+  if (state.status && (state.status.demo || state.status.needs_setup)) return;
+  let res;
+  try {
+    res = await api.post("/api/sync-on-open", {});
+  } catch (e) {
+    return;   // stille – en feilet bakgrunnssynk skal aldri forstyrre visningen
+  }
+  if (!res || !res.started) return;
+  const before = (state.status && state.status.last_sync_at) || "";
+  for (let i = 0; i < 12; i++) {           // følg med i ~60 s
+    await new Promise((r) => setTimeout(r, 5000));
+    let st;
+    try {
+      st = await api.get("/api/status");
+    } catch (e) {
+      return;
+    }
+    if (st.last_sync_at && st.last_sync_at !== before) {
+      state.status = st;
+      if (state.view === "dash") loadDashboard();   // vis de ferske tallene
+      return;
+    }
+  }
 }
 
 async function loadDashboard() {
