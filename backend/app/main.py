@@ -48,11 +48,6 @@ def _psu_headers(request: Request) -> dict | None:
     return h
 
 
-# Retry-intervaller ved ASPSP_ERROR i auto-synk (Enable Bankings anbefaling:
-# økende intervall). Etter siste forsøk gir vi opp til neste dags synk.
-_RETRY_DELAYS = (60, 3600, 7200)  # ≈ 1 min, 1 t, 2 t → ferdig etter ~3 timer
-
-
 def _wire_logging() -> None:
     """Gi vår egen logger en handler.
 
@@ -89,9 +84,14 @@ def _spawn_bg(coro, name: str) -> None:
 
 
 async def _auto_sync_loop() -> None:
-    """Kjører sync.sync_all() én gang i døgnet på fastsatt time. Kontoer som
-    feiler med ASPSP_ERROR (forbigående bankfeil) prøves på nytt inntil
-    3 ganger med økende intervall; deretter venter vi til neste dag."""
+    """Kjører sync.sync_all() ÉN gang i døgnet – ett forsøk per konto, ingen
+    gjentakelser.
+
+    Her lå en retry-kaskade (1 min / 1 t / 2 t) bygget på antakelsen om at
+    ASPSP_ERROR var en FORBIGÅENDE bankfeil. Målingene motbeviste det: SPV feiler
+    likt kl. 06, 07, 09 og 11, mens manuelle uttrekk lykkes hele døgnet. Kaskaden
+    ga altså bare 3x flere ubetjente uttrekk uten gevinst – og kunne i verste fall
+    spise opp bankens døgnkvote for ubetjent tilgang. Fjernet."""
     while True:
         secs = _seconds_until_hour(config.AUTO_SYNC_HOUR)
         # Synlig kvittering på at planleggeren LEVER, og når den fyrer. Uten dette
@@ -106,28 +106,13 @@ async def _auto_sync_loop() -> None:
         try:
             res = await asyncio.to_thread(sync.sync_all)
             synced = res.get("synced", [])
-            log.info("Auto-synk fullført: %s konto(er)", len(synced))
-            failed = [r["account_id"] for r in synced if r.get("retryable")]
-            for attempt, delay in enumerate(_RETRY_DELAYS, start=1):
-                if not failed:
-                    break
-                log.info("Auto-synk: %s konto(er) feilet (ASPSP_ERROR) – nytt forsøk %s/%s om %s s",
-                         len(failed), attempt, len(_RETRY_DELAYS), delay)
-                await asyncio.sleep(delay)
-                still = []
-                for aid in failed:
-                    try:
-                        r = await asyncio.to_thread(sync.sync_account, aid, True)
-                        if r.get("retryable"):
-                            still.append(aid)
-                    except Exception:  # noqa: BLE001
-                        still.append(aid)
-                if len(still) < len(failed):
-                    db.set_setting("last_sync_at", gc.utc_now_iso())
-                failed = still
-            if failed:
-                log.warning("Auto-synk: %s konto(er) feilet fortsatt etter %s forsøk – gir opp til i morgen",
-                            len(failed), len(_RETRY_DELAYS))
+            failed = [r for r in synced if r.get("tx_error") or r.get("error")]
+            log.info("Auto-synk fullført: %s konto(er), %s feilet",
+                     len(synced), len(failed))
+            for r in failed:  # én linje per feil – gjør årsaken søkbar i journalen
+                log.warning("Auto-synk: %s feilet (%s) %s", r["account_id"],
+                            r.get("tx_status") or r.get("status"),
+                            r.get("tx_error") or r.get("error"))
         except Exception as e:  # noqa: BLE001 – jobben skal aldri kunne dø
             log.warning("Auto-synk feilet: %s", e)
 
